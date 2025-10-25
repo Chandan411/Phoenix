@@ -1,0 +1,113 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #f9f9f9;
+  color: #222;
+}
+
+input, button, table {
+  font-size: 14px;
+  padding: 4px;
+}
+
+table th, table td {
+  border: 1px solid #ddd;
+  padding: 4px;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 37%, #f0f0f0 63%);
+  border-radius: 4px;
+  min-height: 1em;
+  animation: skeleton-loading 1.2s infinite;
+}
+@keyframes skeleton-loading {
+  0% { background-position: -200px 0 }
+  100% { background-position: calc(200px + 100%) 0 }
+}
+
+/* Dashboard Cards */
+.dashboard-cards {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+.dashboard-card {
+  background: #e3f2fd;
+  padding: 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  flex: 1;
+  text-decoration: none;
+  color: inherit;
+  transition: box-shadow 0.2s;
+}
+.dashboard-card:hover {
+  box-shadow: 0 2px 12px rgba(33,150,243,0.08);
+}
+.dashboard-card-revenue {
+  background: #e8f5e9;
+}
+.dashboard-card-title {
+  font-size: 24px;
+  font-weight: bold;
+}
+.dashboard-card-value {
+  font-size: 32px;
+}
+
+/* Table */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.table th, .table td {
+  border: 1px solid #ddd;
+  padding: 4px;
+}
+.table th {
+  background: #f5f5f5;
+  font-weight: 600;
+}
+.table-striped tbody tr:nth-child(odd) {
+  background: #fafafa;
+}
+
+/* Invoice Form */
+.invoice-form {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 20px;
+}
+.invoice-form h2 {
+  margin-bottom: 16px;
+}
+.invoice-form label {
+  display: block;
+  margin-bottom: 8px;
+}
+.invoice-form input, .invoice-form select {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.invoice-form .error {
+  color: red;
+  font-size: 13px;
+}
+.invoice-form .items-table th, .invoice-form .items-table td {
+  padding: 6px;
+}
+.invoice-form .totals {
+  margin-top: 12px;
+}
+.invoice-form .totals div {
+  margin-bottom: 4px;
+}
+.invoice-form .actions {
+  margin-top: 12px;
+}
+
