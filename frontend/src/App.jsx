@@ -38,7 +38,7 @@ export default function App() {
               <ReceiptLongOutlinedIcon sx={{ color: '#4F8CFF', fontSize: 36 }} />
             </span>
             <span>
-              <span className="bill-e-zee-title" style={{ color: '#222B45', fontFamily: 'Inter, Segoe UI, Arial, sans-serif', fontWeight: 800, fontSize: '2rem', letterSpacing: 2 }}>Phoenix Enterprises</span>
+              <span className="bill-e-zee-title" style={{ color: '#222B45', fontFamily: 'Inter, Segoe UI, Arial, sans-serif', fontWeight: 800, fontSize: '2rem', letterSpacing: 2 }}>Vistar Enterprises</span>
               <div style={{ fontSize: '1rem', color: '#e3f2fd', fontWeight: 500, letterSpacing: 1, marginTop: 2 }}>Smart Billing Software</div>
             </span>
           </span>

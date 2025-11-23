@@ -3,7 +3,7 @@ const router = express.Router();
 const db = require('../db/db');
 const path = require('path');
 const logo = path.join(__dirname, '../services/phoenix.jpg');
-const { generateAndSavePDF, calculateTotals } = require('../services/pdfService');
+const { generateAndSavePDF, calculateTotals } = require('../services/pdfServiceVistar');
 const dayjs = require('dayjs');
 
 // Generate next invoice number
@@ -115,11 +115,11 @@ router.post('/', async (req, res) => {
       total: calc.total
     };
     const pdfPath = await generateAndSavePDF(invoiceForPdf, {
-      name: 'PHOENIX ENTERPRISES',
-      address: '1302, C Wing, Ambika Nagar, J.N. Road, Near Apna Bazar, Mulund (W), Mumbai - 400080',
+      name: 'VISTAR ENTERPRISE',
+      address: 'B-704, 7th floor, Sammishra CHS, P.K. Road, Near Keshav Pada, Mulund (W), Mumbai - 400080',
       mobile: '9326874362',
-      gst: '27CIPPR6142B1Z3',
-      email: 'phoenixenterprises42@gmail.com',
+      gst: '27AHKPR5834N1ZJ',
+      email: 'vistarenterprises6@gmail.com',
       logoPath: logo
     });
     db.prepare('UPDATE invoices SET file_path = ? WHERE id = ?').run(pdfPath, invoiceId);
@@ -241,11 +241,11 @@ router.put('/:id', async (req, res) => {
       total: calc.total
     };
     const pdfPath = await generateAndSavePDF(invoiceForPdf, {
-      name: 'PHOENIX ENTERPRISES',
-      address: '1302, C Wing, Ambika Nagar, J.N. Road, Near Apna Bazar, Mulund (W), Mumbai - 400080',
+      name: 'VISTAR ENTERPRISE',
+      address: 'B-704, 7th floor, Sammishra CHS, P.K. Road, Near Keshav Pada, Mulund (W), Mumbai - 400080',
       mobile: '9326874362',
-      gst: '27CIPPR6142B1Z3',
-      email: 'phoenixenterprises42@gmail.com',
+      gst: '27AHKPR5834N1ZJ',
+      email: 'vistarenterprises6@gmail.com',
       logoPath: logo
     });
     db.prepare('UPDATE invoices SET file_path=? WHERE id=?').run(pdfPath, id);
