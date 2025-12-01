@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   invoice_date TEXT,
   customer_name TEXT,
   customer_address TEXT,
+  challan_no TEXT,
   customer_gst TEXT,
   subtotal REAL,
   total_gst REAL,
@@ -69,4 +70,14 @@ function insertDefaultUsers() {
 }
 insertDefaultUsers();
 
+// Ensure invoices table has `challan_no` column for existing DBs
+try {
+  const info = db.prepare("PRAGMA table_info(invoices)").all();
+  const hasChallan = (info || []).some(r => r && r.name === 'challan_no');
+  if (!hasChallan) {
+    db.exec("ALTER TABLE invoices ADD COLUMN challan_no TEXT;");
+  }
+} catch (e) {
+  // ignore any errors while migrating schema
+}
 module.exports = db;

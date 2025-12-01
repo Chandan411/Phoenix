@@ -79,8 +79,8 @@ router.post("/", async (req, res) => {
       .prepare(
         `
       INSERT INTO invoices
-      (invoice_number, invoice_date, customer_name, customer_address, customer_gst, subtotal, total_gst, total, file_path, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (invoice_number, invoice_date, customer_name, customer_address, challan_no, customer_gst, subtotal, total_gst, total, file_path, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
       .run(
@@ -88,6 +88,7 @@ router.post("/", async (req, res) => {
         invoiceDate,
         body.customer_name,
         body.customer_address || "",
+        body.challan_no || null,
         body.customer_gst || "",
         calc.subtotal,
         calc.totalGst,
@@ -137,6 +138,7 @@ router.post("/", async (req, res) => {
       invoice_date: invoiceDate,
       customer_name: body.customer_name,
       customer_address: body.customer_address || "",
+      challan_no: body.challan_no || undefined,
       customer_gst: body.customer_gst || "",
       items: normalizedItems, // <-- use enriched items with correct GST rates
       subtotal: calc.subtotal,
@@ -232,20 +234,18 @@ router.get("/:id", (req, res) => {
 // Edit invoice
 router.put("/:id", async (req, res) => {
   const id = Number(req.params.id);
-  const { invoice_date, customer_name, customer_address, customer_gst, items } =
+    const { invoice_date, customer_name, customer_address, customer_gst, items, challan_no } =
     req.body;
   try {
-    const normalizedItems = normalizeGstFields(
-      items,
-      customer_gst || body.customer_gst
-    );
+    const normalizedItems = normalizeGstFields(items, customer_gst);
     const calc = calculateTotals(normalizedItems);
     db.prepare(
-      `UPDATE invoices SET invoice_date=?, customer_name=?, customer_address=?, customer_gst=?, subtotal=?, total_gst=?, total=? WHERE id=?`
+      `UPDATE invoices SET invoice_date=?, customer_name=?, customer_address=?, challan_no=?, customer_gst=?, subtotal=?, total_gst=?, total=? WHERE id=?`
     ).run(
       invoice_date,
       customer_name,
       customer_address,
+      challan_no || null,
       customer_gst,
       calc.subtotal,
       calc.totalGst,
@@ -287,6 +287,7 @@ router.put("/:id", async (req, res) => {
       invoice_date,
       customer_name,
       customer_address,
+      challan_no: challan_no || updatedInvoice.challan_no || undefined,
       customer_gst,
       items: normalizedItems, // <-- use enriched items with correct GST rates
       subtotal: calc.subtotal,

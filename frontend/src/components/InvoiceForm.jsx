@@ -28,6 +28,7 @@ export default function InvoiceForm({ invoice, onDone }) {
   const [customerName, setCustomerName] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   const [customerGst, setCustomerGst] = useState('');
+  const [challanNo, setChallanNo] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
   const [loading, setLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
@@ -52,6 +53,7 @@ export default function InvoiceForm({ invoice, onDone }) {
       setCustomerName(invoice.customer_name || '');
       setCustomerAddress(invoice.customer_address || '');
       setCustomerGst(invoice.customer_gst || '');
+      setChallanNo(invoice.challan_no || '');
       const isCgstSgst = (invoice.customer_gst || '').startsWith('27');
       setGstType(isCgstSgst ? 'CGST_SGST' : 'IGST');
       // Fetch HSN/SAC for each item if missing or empty
@@ -92,6 +94,7 @@ export default function InvoiceForm({ invoice, onDone }) {
       setCustomerGst('');
       setItems([emptyItem()]);
       setGstType('IGST');
+      setChallanNo('');
     }
   }, [invoice]);
 
@@ -208,6 +211,7 @@ export default function InvoiceForm({ invoice, onDone }) {
         customer_name: customerName,
         customer_address: customerAddress,
         customer_gst: customerGst,
+        challan_no: challanNo || undefined,
         items: items.map(it => {
           if (gstType === 'CGST_SGST') {
             return {
@@ -315,6 +319,13 @@ export default function InvoiceForm({ invoice, onDone }) {
                   minRows={3}
                   variant="outlined"
                   sx={{ minWidth: 250 }}
+                />
+                <TextField
+                  label="Challan No (optional)"
+                  value={challanNo}
+                  onChange={e => setChallanNo(e.target.value)}
+                  variant="outlined"
+                  sx={{ minWidth: 220 }}
                 />
               </Stack>
             </Paper>

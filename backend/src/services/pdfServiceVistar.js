@@ -166,9 +166,9 @@ async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
   // GSTIN (bold)
   doc.font(F_BOLD).fontSize(STYLE.normalSize).text('GSTIN: ' + (invoiceObj.customer_gst || invoiceObj.bill_to_gstin || ''), leftX + 10, billToY, { width: leftW - 20 });
 
-  // Challan No. logic
-  let challanNo = '';
-  if (invoiceObj.invoice_number) {
+  // Challan No. logic - prefer provided challan_no, fallback to generated from invoice number
+  let challanNo = invoiceObj.challan_no || '';
+  if (!challanNo && invoiceObj.invoice_number) {
     const invNumStr = String(invoiceObj.invoice_number);
     challanNo = 'CH' + invNumStr.slice(-4);
   }
