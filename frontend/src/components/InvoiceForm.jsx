@@ -276,7 +276,7 @@ export default function InvoiceForm({ invoice, onDone }) {
               <Typography variant="subtitle1" color="primary" fontWeight={600} mb={2}>
                 Party Details
               </Typography>
-              <Stack spacing={2} direction={{ xs: 'column', sm: 'row' }} alignItems="flex-start">
+              <Stack spacing={2} direction="column" sx={{ width: '100%' }}>
                 <Autocomplete
                   freeSolo
                   clearOnBlur={false}
@@ -293,11 +293,12 @@ export default function InvoiceForm({ invoice, onDone }) {
                       inputProps={{
                         ...params.inputProps,
                         maxLength: 15,
-                        style: { textTransform: 'uppercase' }
+                        style: { textTransform: 'uppercase', overflowWrap: 'break-word' }
                       }}
+                      fullWidth
                     />
                   )}
-                  sx={{ minWidth: 250 }}
+                  sx={{ width: '100%' }}
                 />
                 <TextField
                   label="Customer Name"
@@ -309,7 +310,7 @@ export default function InvoiceForm({ invoice, onDone }) {
                   error={!!fieldErrors.customerName}
                   helperText={fieldErrors.customerName}
                   variant="outlined"
-                  sx={{ minWidth: 250 }}
+                  fullWidth
                 />
                 <TextField
                   label="Address"
@@ -318,14 +319,16 @@ export default function InvoiceForm({ invoice, onDone }) {
                   multiline
                   minRows={3}
                   variant="outlined"
-                  sx={{ minWidth: 250 }}
+                  fullWidth
                 />
                 <TextField
                   label="Challan No (optional)"
                   value={challanNo}
                   onChange={e => setChallanNo(e.target.value)}
                   variant="outlined"
-                  sx={{ minWidth: 220 }}
+                  inputProps={{ maxLength: 30, style: { overflowWrap: 'break-word' } }}
+                  helperText="Optional — will be used in generated PDF if provided"
+                  fullWidth
                 />
               </Stack>
             </Paper>
