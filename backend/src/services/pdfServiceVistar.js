@@ -352,7 +352,8 @@ async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
   doc.text(formatINR(roundedTotal), totX + 10, totY + 64, { width: totW - 20, align: 'right' });
 
   // Amount in words boxed (left of totals) — bold and boxed
-  const amountWords = invoiceObj.total ? (numberToWords.toWords(invoiceObj.total).toUpperCase() + ' RUPEES ONLY') : '';
+  // Map amount-in-words to the rounded Grand Total (roundedTotal computed above)
+  const amountWords = roundedTotal ? (numberToWords.toWords(roundedTotal).toUpperCase() + ' RUPEES ONLY') : '';
   const wordsBoxX = page.margins.left, wordsBoxY = totY;
   const wordsBoxW = contentW - totW - 16, wordsBoxH = 56; // Adjusted width for alignment
   doc.roundedRect(wordsBoxX, wordsBoxY, wordsBoxW, wordsBoxH, 6).lineWidth(0.6).stroke();
