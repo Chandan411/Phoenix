@@ -5,7 +5,7 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
-import { createInvoice, updateInvoice, listInvoices, invoicePdfUrl, getPartyByGst, getProductByName } from '../api';
+import { createInvoice, updateInvoice, listInvoices, getPartyByGst, getProductByName } from '../api';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import CurrencyFormat from '../utils/CurrencyFormat.jsx';
@@ -16,7 +16,6 @@ const igstOptions = [5, 18, 28];
 const emptyItem = () => ({
   product_name: '',
   hsn_sac: '',
-  description: '',
   quantity: 1,
   unit_price: 0,
   cgst_rate: 0,
@@ -66,7 +65,9 @@ export default function InvoiceForm({ invoice, onDone }) {
                 if (product && product.hsn_sac) {
                   hsn_sac = product.hsn_sac;
                 }
-              } catch {}
+              } catch(e){
+                console.error('Error fetching product for HSN/SAC:', e);
+              }
             }
             if (isCgstSgst) {
               return { ...it, hsn_sac, cgst_rate: Number(it.cgst_rate) || 0, sgst_rate: Number(it.sgst_rate) || 0, igst_rate: 0 };
@@ -148,15 +149,15 @@ export default function InvoiceForm({ invoice, onDone }) {
     const errors = {};
     const gstRegex = /^[A-Z0-9]{15}$/;
 
-    if (!customerName.trim()) errors.customerName = "Customer name is required";
+    if (!String(customerName || '').trim()) errors.customerName = "Customer name is required";
     if (!customerGst) {
       errors.customerGst = "Customer GST is required";
-    } else if (!gstRegex.test(customerGst.trim())) {
+    } else if (!gstRegex.test(String(customerGst || '').trim())) {
       errors.customerGst = "GST must be 15 uppercase alphanumeric characters";
     }
     items.forEach((item, idx) => {
-      if (!item.product_name.trim()) errors[`item_product_name_${idx}`] = "Product name required";
-      if (!item.hsn_sac || !item.hsn_sac.trim()) errors[`item_hsn_sac_${idx}`] = "HSN/SAC code is required";
+      if (!String(item.product_name || '').trim()) errors[`item_product_name_${idx}`] = "Product name required";
+      if (!String(item.hsn_sac || '').trim()) errors[`item_hsn_sac_${idx}`] = "HSN/SAC code is required";
       if (!item.quantity || item.quantity <= 0) errors[`item_quantity_${idx}`] = "Quantity must be > 0";
       if (!item.unit_price || item.unit_price < 0) errors[`item_unit_price_${idx}`] = "Unit price required";
       if (gstType === 'CGST_SGST') {
@@ -177,18 +178,19 @@ export default function InvoiceForm({ invoice, onDone }) {
   };
 
   const handleGstChange = async (val) => {
-    setCustomerGst(val.toUpperCase());
+    const v = String(val || '').toUpperCase();
+    setCustomerGst(v);
     setFieldErrors(errors => ({ ...errors, customerGst: undefined }));
-    setGstType(val.startsWith('27') ? 'CGST_SGST' : 'IGST');
+    setGstType(v.startsWith('27') ? 'CGST_SGST' : 'IGST');
     // Auto-populate party details if GST is valid
-    if (/^[A-Z0-9]{15}$/.test(val)) {
+    if (/^[A-Z0-9]{15}$/.test(v)) {
       try {
-        const party = await getPartyByGst(val.toUpperCase());
+        const party = await getPartyByGst(v);
         if (party) {
           setCustomerName(party.name || '');
           setCustomerAddress(party.address || '');
         }
-      } catch (e) {
+      } catch {
         // Party not found, do nothing
         setCustomerName('');
         setCustomerAddress('');
@@ -224,15 +226,19 @@ export default function InvoiceForm({ invoice, onDone }) {
           }
         })
       };
-      let result;
       if (invoice && invoice.id) {
-        result = await updateInvoice(invoice.id, payload);
+        await updateInvoice(invoice.id, payload);
         toast.success('Invoice updated successfully!');
       } else {
-        result = await createInvoice(payload);
+        await createInvoice(payload);
         toast.success('Invoice created successfully!');
       }
-      //window.open(invoicePdfUrl(result.id), '_blank');
+      // Open generated PDF in new tab
+      try {
+        //window.open(invoicePdfUrl(result.id), '_blank');
+      } catch {
+        // ignore in non-browser environments
+      }
       if (onDone) onDone();
       navigate('/dashboard'); // <-- Fix: redirect to dashboard after creation
     } catch (err) {
@@ -272,7 +278,7 @@ export default function InvoiceForm({ invoice, onDone }) {
                   clearOnBlur={false}
                   options={gstOptions}
                   value={customerGst}
-                  onInputChange={(_, val) => handleGstChange(val.slice(0, 15))}
+                  onInputChange={(_, val) => handleGstChange((val || '').slice(0, 15))}
                   renderInput={params => (
                     <TextField
                       {...params}

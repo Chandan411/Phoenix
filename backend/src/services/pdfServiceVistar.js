@@ -108,12 +108,22 @@ async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
   const logoX = compX + 12, logoY = compY + 12;
   const logoW = Math.min(STYLE.logoMaxW, Math.floor(compW * 0.16));
   const logoH = Math.min(STYLE.logoMaxH, compBoxH - 24);
-  if (companyConfig.logoPath && fs.existsSync(companyConfig.logoPath)) {
-    try { doc.image(companyConfig.logoPath, logoX, logoY, { fit: [logoW, logoH], align: 'left', valign: 'top' }); }
-    catch (e) { doc.rect(logoX, logoY, logoW, logoH).stroke(); doc.font(F_BOLD).fontSize(9).text('LOGO', logoX, logoY + logoH/2 - 6, { width: logoW, align: 'center' }); }
-  } else {
-    doc.rect(logoX, logoY, logoW, logoH).lineWidth(0.4).stroke();
-    doc.font(F_BOLD).fontSize(9).text('LOGO', logoX, logoY + logoH/2 - 6, { width: logoW, align: 'center' });
+  // Render logo image if provided (kept optional). If no image provided, leave blank.
+  try {
+    if (companyConfig.logoPath && fs.existsSync(companyConfig.logoPath)) {
+      // draw image fitted into reserved area
+      try {
+        doc.image(companyConfig.logoPath, logoX, logoY, { fit: [logoW, logoH], align: 'left', valign: 'top' });
+      } catch (e) {
+        // If image fails to load, draw an empty placeholder border so layout stays consistent
+        doc.rect(logoX, logoY, logoW, logoH).lineWidth(0.4).stroke();
+      }
+    } else {
+      // no logo file, draw an empty placeholder rectangle to preserve spacing
+      doc.rect(logoX, logoY, logoW, logoH).lineWidth(0.4).stroke();
+    }
+  } catch (e) {
+    // ignore filesystem errors and continue without logo
   }
 
   // Company text (right of logo) - aligned left, neat spacing
@@ -195,11 +205,12 @@ async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
   }
   let headers, colPercents;
   if (gstType === 'CGST_SGST') {
-    headers = ['SNo','Description','Qty','Unit Price','CGST %','SGST %','Amount'];
-    colPercents = [6, 45, 8, 12, 9, 9, 12]; // Amount column width increased
+    // Insert HSN/SAC column after Description
+    headers = ['SNo','Description','HSN/SAC','Qty','Unit Price','CGST %','SGST %','Amount'];
+    colPercents = [6, 32, 12, 6, 12, 9, 9, 14];
   } else {
-    headers = ['SNo','Description','Qty','Unit Price','IGST %','Amount'];
-      colPercents = [6, 42, 8, 12, 10, 22]; // Amount column width increased for IGST
+    headers = ['SNo','Description','HSN/SAC','Qty','Unit Price','IGST %','Amount'];
+    colPercents = [6, 34, 12, 6, 12, 10, 20];
   }
   const colWidths = colPercents.map(p => Math.floor((p/100) * tableW));
 
@@ -257,31 +268,36 @@ async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
       const rawDesc = `${it.product_name || ''}${it.description ? ' - ' + it.description : ''}`.trim();
       let desc = rawDesc;
       const estH = doc.heightOfString(desc, { width: descW });
-      if (estH > rowHVal) desc = truncateToWidth(doc, descW, F_REG, fontSizeVal);
+      if (estH > rowHVal) desc = truncateToWidth(doc, desc, descW, F_REG, fontSizeVal);
       doc.text(desc, cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: descW, align: 'left' });
       cx += colWidths[1];
 
+      // HSN/SAC (after description)
+      const hsnVal = it.hsn_sac || '';
+      doc.text(hsnVal, cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[2] - 12, align: 'center' });
+      cx += colWidths[2];
+
       // Qty
       const qtyStr = it.quantity !== undefined && it.quantity !== null ? String(it.quantity) : '';
-      doc.text(qtyStr, cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[2] - 12, align: 'right' });
-      cx += colWidths[2];
+      doc.text(qtyStr, cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[3] - 12, align: 'right' });
+      cx += colWidths[3];
 
       // Unit Price
       const up = (it.unit_price !== undefined && it.unit_price !== '') ? Number(it.unit_price).toFixed(2) : '';
-      doc.text(up, cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[3] - 12, align: 'right' });
-      cx += colWidths[3];
+      doc.text(up, cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[4] - 12, align: 'right' });
+      cx += colWidths[4];
 
       if (gstType === 'CGST_SGST') {
         // CGST %
-        doc.text((Number(it.cgst_rate) || 0).toFixed(2), cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[4] - 12, align: 'right' });
-        cx += colWidths[4];
-        // SGST %
-        doc.text((Number(it.sgst_rate) || 0).toFixed(2), cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[5] - 12, align: 'right' });
+        doc.text((Number(it.cgst_rate) || 0).toFixed(2), cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[5] - 12, align: 'right' });
         cx += colWidths[5];
+        // SGST %
+        doc.text((Number(it.sgst_rate) || 0).toFixed(2), cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[6] - 12, align: 'right' });
+        cx += colWidths[6];
       } else {
         // IGST %
-        doc.text((Number(it.igst_rate) || 0).toFixed(2), cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[4] - 12, align: 'right' });
-        cx += colWidths[4];
+        doc.text((Number(it.igst_rate) || 0).toFixed(2), cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[5] - 12, align: 'right' });
+        cx += colWidths[5];
       }
 
       // Amount
