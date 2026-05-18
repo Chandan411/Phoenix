@@ -5,11 +5,11 @@ RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
 
-# Copy package files and lock files
-COPY backend/package*.json ./backend/
-COPY frontend/package*.json ./frontend/
+# Copy everything needed
+COPY backend ./backend
+COPY frontend ./frontend
 
-# Install backend dependencies (use npm install, not npm ci, for flexibility)
+# Install backend dependencies
 WORKDIR /app/backend
 RUN npm install --omit=dev
 
@@ -18,9 +18,8 @@ WORKDIR /app/frontend
 RUN npm install
 RUN npm run build
 
-# Copy source code
-COPY backend/src ./src
-COPY backend/storage ./storage
+# Copy built frontend to backend public folder
+RUN mkdir -p ../backend/public && cp -r dist/* ../backend/public/
 
 WORKDIR /app/backend
 
