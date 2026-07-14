@@ -11,9 +11,9 @@ services:
       - key: PORT
         value: 8000
       - key: FRONTEND_URL
-        value: https://phoenix-frontend.onrender.com
+        value: https://phoenix-1-l1fw.onrender.com
       - key: ALLOWED_ORIGINS
-        value: https://phoenix-frontend.onrender.com,http://localhost:5173,http://localhost:3000
+        value: https://phoenix-1-l1fw.onrender.com,http://localhost:5173,http://localhost:3000
   - type: static
     name: phoenix-frontend
     rootDir: frontend
@@ -21,4 +21,4 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_BASE
-        value: https://phoenix-backend.onrender.com/api
+        value: https://phoenix-cy09.onrender.com/api
