@@ -7,7 +7,9 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "dev": "nodemon src/index.js",
+    "backup:data": "node scripts/backupData.js",
+    "restore:data": "node scripts/restoreData.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
