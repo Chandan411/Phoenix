@@ -13,20 +13,28 @@ const allowedOrigins = [
   ...(process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean)
 ].filter(Boolean);
 
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  return /https:\/\/.+\.onrender\.com$/i.test(origin);
+};
+
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (isAllowedOrigin(origin)) {
       callback(null, true);
       return;
     }
 
-    callback(new Error(`CORS blocked for origin: ${origin}`));
+    callback(null, false);
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 204
 }));
 
+app.options('*', cors());
 app.use(bodyParser.json({ limit: '5mb' }));
 app.use('/api/invoices', invoicesRouter);
 app.use('/api/auth', authRouter);
