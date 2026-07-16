@@ -249,6 +249,30 @@ async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
   let fontSizeVal = Math.max(STYLE.minFontSize, Math.floor(baseFont * (rowHVal / maxRowH)));
   if (fontSizeVal < STYLE.minFontSize) fontSizeVal = STYLE.minFontSize;
 
+  const descW = colWidths[1] - 12;
+  const computeRowHeights = (size) => {
+    doc.font(F_REG).fontSize(size);
+    return items.map(it => {
+      const rawDesc = `${it.product_name || ''}${it.description ? ' - ' + it.description : ''}`.trim();
+      const descH = rawDesc ? doc.heightOfString(rawDesc, { width: descW }) : doc.heightOfString(' ', { width: descW });
+      return Math.max(minRowH, Math.min(maxRowH * 2, Math.ceil(descH + 4)));
+    });
+  };
+
+  let rowHeights = computeRowHeights(fontSizeVal);
+  let totalRowHeight = rowHeights.reduce((sum, h) => sum + h, 0);
+  while (totalRowHeight > rowAreaH && fontSizeVal > STYLE.minFontSize) {
+    fontSizeVal--;
+    rowHeights = computeRowHeights(fontSizeVal);
+    totalRowHeight = rowHeights.reduce((sum, h) => sum + h, 0);
+  }
+
+  if (totalRowHeight > rowAreaH && rowCount > 0) {
+    rowHVal = Math.max(minRowH, Math.min(maxRowH, Math.floor(rowAreaH / rowCount)));
+    rowHeights = Array(rowCount).fill(rowHVal);
+    totalRowHeight = rowHeights.reduce((sum, h) => sum + h, 0);
+  }
+
   doc.font(F_REG).fontSize(fontSizeVal);
   let currentRowY = tableY + headerH + 6;
 
@@ -257,24 +281,27 @@ async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
   } else {
     for (let i = 0; i < rowCount; i++) {
       const it = items[i] || {};
+      const rowH = rowHeights[i] || rowHVal;
       let cx = tableX;
 
       // SNo
-      doc.text(String(i+1), cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[0] - 12, align: 'center' });
+      doc.text(String(i+1), cx + 6, currentRowY + (rowH - fontSizeVal) / 2, { width: colWidths[0] - 12, align: 'center' });
       cx += colWidths[0];
 
-      // Description (truncate if too tall)
-      const descW = colWidths[1] - 12;
+      // Description (wrap long text within the column width)
       const rawDesc = `${it.product_name || ''}${it.description ? ' - ' + it.description : ''}`.trim();
-      let desc = rawDesc;
-      const estH = doc.heightOfString(desc, { width: descW });
-      if (estH > rowHVal) desc = truncateToWidth(doc, desc, descW, F_REG, fontSizeVal);
-      doc.text(desc, cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: descW, align: 'left' });
+      doc.text(rawDesc, cx + 6, currentRowY + 2, {
+        width: descW,
+        align: 'left',
+        ellipsis: true,
+        lineBreak: true,
+        paragraphGap: 0
+      });
       cx += colWidths[1];
 
       // HSN/SAC (after description)
       const hsnVal = it.hsn_sac || '';
-      doc.text(hsnVal, cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[2] - 12, align: 'center' });
+      doc.text(hsnVal, cx + 6, currentRowY + (rowH - fontSizeVal) / 2, { width: colWidths[2] - 12, align: 'center' });
       cx += colWidths[2];
 
       // Qty
