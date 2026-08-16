@@ -9,18 +9,34 @@ const {
 } = require("../services/pdfServiceVistar");
 const dayjs = require("dayjs");
 
-// Generate next invoice number
-function nextInvoiceNumber() {
+// Get financial year start year for a given date (Indian FY: Apr 1 - Mar 31)
+function getFinancialYearStartYear(dateStr) {
+  const date = dayjs(dateStr);
+  const month = date.month(); // 0-indexed
+  const year = date.year();
+  return month >= 3 ? year : year - 1; // April (3) onwards = current year, else previous year
+}
+
+// Format financial year as "2025-26"
+function formatFinancialYear(fyStartYear) {
+  return `${fyStartYear}-${String(fyStartYear + 1).slice(-2)}`;
+}
+
+// Generate next invoice number for a given financial year
+function nextInvoiceNumber(invoiceDate) {
+  const fyStartYear = getFinancialYearStartYear(invoiceDate);
+  const fy = formatFinancialYear(fyStartYear);
+
   const txn = db.transaction(() => {
     const row = db
-      .prepare("SELECT last_seq FROM invoice_seq WHERE id = 1")
-      .get();
+      .prepare("SELECT last_seq FROM invoice_seq WHERE fy_start_year = ?")
+      .get(fyStartYear);
     const next = (row && row.last_seq ? row.last_seq : 0) + 1;
-    db.prepare("UPDATE invoice_seq SET last_seq = ? WHERE id = 1").run(next);
+    db.prepare("INSERT OR REPLACE INTO invoice_seq (fy_start_year, last_seq) VALUES (?, ?)").run(fyStartYear, next);
     return next;
   });
   const seq = txn();
-  return `INV-${dayjs().format("YYYYMM")}-${String(seq).padStart(4, "0")}`;
+  return `INV-${fy}-${String(seq).padStart(4, "0")}`;
 }
 
 function normalizeGstFields(items, gstNumber) {
@@ -65,13 +81,13 @@ router.post("/", async (req, res) => {
         .status(400)
         .json({ error: "Missing customer_name or items[]" });
     }
+    const invoiceDate = body.invoice_date || dayjs().format("YYYY-MM-DD");
     const invoiceNumber =
       body.invoice_number && typeof body.invoice_number === "string"
         ? body.invoice_number
-        : nextInvoiceNumber();
+        : nextInvoiceNumber(invoiceDate);
     const normalizedItems = normalizeGstFields(body.items, body.customer_gst);
     const calc = calculateTotals(normalizedItems);
-    const invoiceDate = body.invoice_date || dayjs().format("YYYY-MM-DD");
     const createdAt = dayjs().toISOString();
 
     // Insert invoice
@@ -153,6 +169,13 @@ router.post("/", async (req, res) => {
       gst: "27AHKPR5834N1ZJ",
       email: "vistarenterprises6@gmail.com",
       logoPath: logo,
+      bankDetails: {
+        bankName: "BANK OF BARODA",
+        accountNumber: "38350200000607",
+        ifsc: "BARB0MULWES",
+        branch: "Mulund West",
+        beneficiary: "VISTAR ENTERPRISES",
+      },
     });
     db.prepare("UPDATE invoices SET file_path = ? WHERE id = ?").run(
       pdfPath,
@@ -302,6 +325,13 @@ router.put("/:id", async (req, res) => {
       gst: "27AHKPR5834N1ZJ",
       email: "vistarenterprises6@gmail.com",
       logoPath: logo,
+      bankDetails: {
+        bankName: "BANK OF BARODA",
+        accountNumber: "38350200000607",
+        ifsc: "BARB0MULWES",
+        branch: "Mulund West",
+        beneficiary: "VISTAR ENTERPRISES",
+      },
     });
     db.prepare("UPDATE invoices SET file_path=? WHERE id=?").run(pdfPath, id);
 

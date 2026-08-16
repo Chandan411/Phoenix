@@ -1,449 +1,180 @@
-// pdfService.js
-// Final production-ready, single-page invoice generator (PDFKit).
-// - Clean professional layout
-// - Single page only (fits content by scaling/truncation)
-// - Bottom box: Bank Details (left) | For <Company Name> + signature (right) — equal split
-// - Amount in words inside a boxed, bold area
-// - Footer message placed at extreme bottom (outside boxes) in small muted font
-// - No duplicate table lines or overlapping boxes
-
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 const numberToWords = require('number-to-words');
+const CURRENCY_FONT = path.join(__dirname, 'fonts', 'NotoSans-Regular.ttf');
+const CURRENCY_FONT_BOLD = path.join(__dirname, 'fonts', 'NotoSans-Bold.ttf');
 
-function safeName(s) { return (s || 'unknown').replace(/[\/\\:?<>|"]/g, '_').slice(0, 50); }
+const PAGE = { size: 'A4', margin: 36, footer: 22 };
+const STYLE = { ink: '#202124', line: '#59636e', muted: '#667085', fill: '#f5f7fa', accent: '#163a5f', title: 16, company: 12, body: 8.5, table: 7.2, small: 7 };
+const PAD = 5, GAP = 8;
+const text = (v) => v === null || v === undefined ? '' : String(v).trim();
+const number = (v, fallback = 0) => { const n = typeof v === 'string' && !v.trim() ? NaN : Number(v); return Number.isFinite(n) ? n : fallback; };
+const money = (v) => Math.round((number(v) + Number.EPSILON) * 100) / 100;
+const safeName = (v) => (text(v || 'customer').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'customer');
+const inr = (v) => Number.isFinite(Number(v)) ? '₹' + new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v)) : '-';
+const value = (v) => Number.isFinite(Number(v)) ? new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v)) : '-';
+const qty = (v) => Number.isFinite(Number(v)) ? new Intl.NumberFormat('en-IN', { maximumFractionDigits: 3 }).format(Number(v)) : '-';
+const rate = (v) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(number(v)) + '%';
 
-function calculateTotals(items){
-  let subtotal = 0, totalGst = 0;
-  const enriched = (items||[]).map(it => {
-    const qty = Number(it.quantity) || 0;
-    const price = Number(it.unit_price) || 0;
-    const gstRate = (Number(it.cgst_rate)||0) + (Number(it.sgst_rate)||0) + (Number(it.igst_rate)||0);
-    const line = qty * price;
-    const gstAmt = line * (gstRate / 100);
-    subtotal += line;
-    totalGst += gstAmt;
-    return {...it, line_total: +(line + gstAmt)};
-  });
-  const total = +(subtotal + totalGst);
-  return {
-    items: enriched,
-    subtotal: +subtotal.toFixed(2),
-    totalGst: +totalGst.toFixed(2),
-    total: +total.toFixed(2)
-  };
+function gstState(gstin) { const match = text(gstin).match(/^(\d{2})/); return match ? match[1] : null; }
+function determineGstType(invoice = {}, company = {}) {
+  const declared = text(invoice.gst_type || invoice.gstType).toUpperCase();
+  if (declared === 'IGST' || declared === 'INTERSTATE') return 'IGST';
+  if (declared === 'CGST_SGST' || declared === 'CGST+SGST' || declared === 'INTRASTATE') return 'CGST_SGST';
+  const supplier = gstState(company.gst || invoice.supplier_gst || invoice.supplierGstin);
+  const customer = gstState(invoice.customer_gst || invoice.customerGstin || invoice.bill_to_gstin);
+  if (supplier && customer) return supplier === customer ? 'CGST_SGST' : 'IGST';
+  return (invoice.items || []).some((i) => number(i.cgst_rate) || number(i.sgst_rate)) ? 'CGST_SGST' : 'IGST';
+}
+function normaliseItem(item = {}, gstType) {
+  const quantity = number(item.quantity), unitPrice = number(item.unit_price ?? item.rate), taxableAmount = money(quantity * unitPrice);
+  let cgstRate = number(item.cgst_rate), sgstRate = number(item.sgst_rate), igstRate = number(item.igst_rate);
+  if (gstType === 'CGST_SGST') { if (!cgstRate && !sgstRate && igstRate) cgstRate = sgstRate = igstRate / 2; igstRate = 0; }
+  else { if (!igstRate) igstRate = cgstRate + sgstRate; cgstRate = sgstRate = 0; }
+  const cgstAmount = money(taxableAmount * cgstRate / 100), sgstAmount = money(taxableAmount * sgstRate / 100), igstAmount = money(taxableAmount * igstRate / 100);
+  const gstAmount = money(cgstAmount + sgstAmount + igstAmount);
+  return { ...item, product_name: text(item.product_name || item.name), description: text(item.description), hsn_sac: text(item.hsn_sac || item.hsn), quantity, unit_price: unitPrice, cgst_rate: cgstRate, sgst_rate: sgstRate, igst_rate: igstRate, taxableAmount, cgstAmount, sgstAmount, igstAmount, gstAmount, lineAmount: money(taxableAmount + gstAmount) };
+}
+function calculateTotals(items = [], gstType, roundOff = 0) {
+  const source = Array.isArray(items) ? items : [], type = gstType || determineGstType({ items: source }), normalisedItems = source.map((item) => normaliseItem(item, type));
+  const sum = (key) => money(normalisedItems.reduce((total, item) => total + item[key], 0));
+  const subtotal = sum('taxableAmount'), cgstAmount = sum('cgstAmount'), sgstAmount = sum('sgstAmount'), igstAmount = sum('igstAmount'), totalGst = money(cgstAmount + sgstAmount + igstAmount), appliedRoundOff = money(roundOff), grandTotal = money(subtotal + totalGst + appliedRoundOff);
+  return { gstType: type, items: normalisedItems, subtotal, cgstAmount, sgstAmount, igstAmount, totalGst, roundOff: appliedRoundOff, grandTotal, total: grandTotal };
 }
 
-// Page & style constants
-const PAGE = { size: 'A4', margin: 36 };
-const STYLE = {
-  titleSize: 18,
-  compNameSize: 12,
-  normalSize: 9,
-  smallSize: 7,
-  minFontSize: 6,
-  logoMaxW: 130,
-  logoMaxH: 60,
-  gap: 8,
-  boxRadius: 6,
-  subtleLine: 0.25
-};
+function getColumns(gstType) {
+  const common = [['sno', 'S.No.', .06, 25, 'center'], ['description', 'Description', gstType === 'IGST' ? .34 : .25, 104, 'left'], ['hsn', 'HSN/SAC', .10, 42, 'center'], ['qty', 'Qty', .07, 31, 'right'], ['unitPrice', 'Unit Price', .12, 51, 'right']];
+  const tax = gstType === 'IGST' ? [['igstRate', 'IGST %', .09, 38, 'right'], ['igstAmount', 'IGST Amt', .13, 54, 'right']] : [['cgstRate', 'CGST %', .07, 31, 'right'], ['cgstAmount', 'CGST Amt', .10, 43, 'right'], ['sgstRate', 'SGST %', .07, 31, 'right'], ['sgstAmount', 'SGST Amt', .10, 43, 'right']];
+  return [...common, ...tax, ['amount', 'Amount', .15, 58, 'right']].map(([key, label, weight, min, align]) => ({ key, label, weight, min, align }));
+}
+function columnWidths(columns, total) {
+  const min = columns.reduce((s, c) => s + c.min, 0);
+  const result = min >= total ? columns.map((c) => Math.floor(c.min * total / min)) : columns.map((c) => Math.floor(c.min + (total - min) * c.weight));
+  result[result.length - 1] += total - result.reduce((s, w) => s + w, 0); return result;
+}
+function page(doc) { const p = doc.page; return { x: p.margins.left, top: p.margins.top, width: p.width - p.margins.left - p.margins.right, bottom: p.height - p.margins.bottom - PAGE.footer }; }
+function h(doc, content, width, size = STYLE.body, font = 'Helvetica') { doc.font(font).fontSize(size); return Math.ceil(doc.heightOfString(text(content) || ' ', { width: Math.max(width, 1), lineGap: 1 })); }
+function drawBox(doc, x, y, width, height, fill) { doc.save().lineWidth(.55).strokeColor(STYLE.line); if (fill) doc.fillColor(fill).roundedRect(x, y, width, height, 3).fillAndStroke(); else doc.roundedRect(x, y, width, height, 3).stroke(); doc.restore(); }
+function drawFooter(doc, note, index) { const p = page(doc), label = ['This is a computer-generated invoice and does not require a physical signature', text(note)].filter(Boolean).join('  |  '); doc.font('Helvetica').fontSize(STYLE.small).fillColor(STYLE.muted).text(label, p.x, p.bottom + 8, { width: p.width, align: 'center' }); }
+function drawTitle(doc, y, continued) { const p = page(doc), label = continued ? 'TAX INVOICE - CONTINUED' : 'TAX INVOICE', size = continued ? 11 : STYLE.title; doc.font('Helvetica-Bold').fontSize(size).fillColor(STYLE.accent).text(label, p.x, y, { width: p.width, align: 'center' }); return y + h(doc, label, p.width, size, 'Helvetica-Bold') + GAP; }
 
-// helpers
-function truncateToWidth(doc, text, width, font, size) {
-  if (!text) return '';
-  doc.font(font).fontSize(size);
-  if (doc.widthOfString(text) <= width) return text;
-  let lo = 0, hi = text.length;
-  while (lo < hi) {
-    const mid = Math.floor((lo + hi + 1)/2);
-    const s = text.slice(0, mid) + '…';
-    if (doc.widthOfString(s) <= width) lo = mid;
-    else hi = mid - 1;
-  }
-  return text.slice(0, lo) + '…';
+function drawCompany(doc, y, invoice, company) {
+  const p = page(doc), hasLogo = company.logoPath && fs.existsSync(company.logoPath), logoWidth = hasLogo ? 92 : 0, x = p.x + (logoWidth ? logoWidth + 14 : PAD), width = p.x + p.width - PAD - x;
+  const name = text(company.name || invoice.supplier_name), lines = [text(company.address || invoice.supplier_address), text(company.email) && 'Email: ' + text(company.email), text(company.mobile) && 'Mobile: ' + text(company.mobile), text(company.gst || invoice.supplier_gst) && 'GSTIN: ' + text(company.gst || invoice.supplier_gst)].filter(Boolean);
+  const height = Math.max(hasLogo ? 70 : 0, PAD * 2 + h(doc, name, width, STYLE.company, 'Helvetica-Bold') + 2 + lines.reduce((s, line) => s + h(doc, line, width), 0));
+  drawBox(doc, p.x, y, p.width, height);
+  if (hasLogo) try { doc.image(company.logoPath, p.x + PAD, y + PAD, { fit: [logoWidth - 10, height - PAD * 2] }); } catch (_) { /* optional image */ }
+  let lineY = y + PAD; doc.font('Helvetica-Bold').fontSize(STYLE.company).fillColor(STYLE.ink).text(name, x, lineY, { width }); lineY += h(doc, name, width, STYLE.company, 'Helvetica-Bold') + 2;
+  lines.forEach((line) => { const lineHeight = h(doc, line, width); doc.font('Helvetica').fontSize(STYLE.body).text(line, x, lineY, { width, lineGap: 1 }); lineY += lineHeight; });
+  return y + height + GAP;
+}
+function labelHeight(doc, label, content, width) { doc.font('Helvetica-Bold').fontSize(STYLE.body); const labelWidth = Math.min(66, Math.max(38, doc.widthOfString(label) + 4)); return Math.max(h(doc, label, labelWidth, STYLE.body, 'Helvetica-Bold'), h(doc, content, width - labelWidth)) + 2; }
+function label(doc, x, y, width, title, content) { doc.font('Helvetica-Bold').fontSize(STYLE.body); const labelWidth = Math.min(66, Math.max(38, doc.widthOfString(title) + 4)), height = labelHeight(doc, title, content, width); doc.text(title, x, y, { width: labelWidth }); doc.font('Helvetica').text(text(content), x + labelWidth, y, { width: width - labelWidth, lineGap: 1 }); return height; }
+function drawParty(doc, y, invoice) {
+  const p = page(doc), gap = 8, left = Math.floor((p.width - gap) * .58), right = p.width - gap - left;
+  const bill = [['Bill To', ''], ['Name:', text(invoice.customer_name || invoice.bill_to)], ['Address:', text(invoice.customer_address || invoice.bill_to_address)], ...(text(invoice.customer_gst) ? [['GSTIN:', text(invoice.customer_gst)]] : [])];
+  const details = [['Invoice Details', ''], ['Invoice No:', text(invoice.invoice_number)], ['Date:', text(invoice.invoice_date)], ...(text(invoice.challan_no) ? [['Challan No:', text(invoice.challan_no)]] : [])];
+  const panelHeight = (rows, width) => PAD * 2 + rows.reduce((sum, row, i) => sum + (i ? labelHeight(doc, row[0], row[1], width - PAD * 2) : h(doc, row[0], width - PAD * 2, STYLE.body + 1, 'Helvetica-Bold') + 3), 0);
+  const height = Math.max(panelHeight(bill, left), panelHeight(details, right)); drawBox(doc, p.x, y, left, height); drawBox(doc, p.x + left + gap, y, right, height);
+  const render = (x, width, rows) => { let rowY = y + PAD; rows.forEach((row, i) => { if (!i) { doc.font('Helvetica-Bold').fontSize(STYLE.body + 1).fillColor(STYLE.accent).text(row[0], x + PAD, rowY, { width: width - PAD * 2 }); rowY += h(doc, row[0], width - PAD * 2, STYLE.body + 1, 'Helvetica-Bold') + 3; } else rowY += label(doc, x + PAD, rowY, width - PAD * 2, row[0], row[1]); }); };
+  render(p.x, left, bill); render(p.x + left + gap, right, details); return y + height + GAP;
+}
+
+function headerHeight(doc, columns, widths) { return Math.max(...columns.map((c, i) => h(doc, c.label, widths[i] - PAD * 2, STYLE.table, 'Helvetica-Bold'))) + PAD * 2; }
+function drawHeader(doc, x, y, columns, widths) {
+  const height = headerHeight(doc, columns, widths), total = widths.reduce((s, w) => s + w, 0); doc.save().fillColor(STYLE.fill).rect(x, y, total, height).fill().restore(); let cellX = x;
+  columns.forEach((column, i) => { doc.font('Helvetica-Bold').fontSize(STYLE.table).fillColor(STYLE.ink).text(column.label, cellX + PAD, y + PAD, { width: widths[i] - PAD * 2, align: 'center', lineGap: 1 }); doc.save().lineWidth(.35).strokeColor(STYLE.line).moveTo(cellX, y).lineTo(cellX, y + height).stroke().restore(); cellX += widths[i]; });
+  doc.save().lineWidth(.55).strokeColor(STYLE.line).rect(x, y, total, height).stroke().restore(); return height;
+}
+function cell(key, item, index) {
+  if (item._continuation && key !== 'description') return '';
+  const description = item._descriptionText === undefined ? [item.product_name, item.description].filter(Boolean).join(item.product_name && item.description ? '\n' : '') : item._descriptionText;
+  return text({ sno: index + 1, description, hsn: item.hsn_sac, qty: qty(item.quantity), unitPrice: value(item.unit_price), cgstRate: rate(item.cgst_rate), cgstAmount: value(item.cgstAmount), sgstRate: rate(item.sgst_rate), sgstAmount: value(item.sgstAmount), igstRate: rate(item.igst_rate), igstAmount: value(item.igstAmount), amount: value(item.lineAmount) }[key]);
+}
+function rowHeight(doc, item, index, columns, widths) { return Math.max(...columns.map((column, i) => h(doc, cell(column.key, item, index), widths[i] - PAD * 2, STYLE.table))) + PAD * 2; }
+function drawRow(doc, x, y, height, item, index, columns, widths) {
+  let cellX = x; const total = widths.reduce((s, w) => s + w, 0);
+  columns.forEach((column, i) => {
+    const content = cell(column.key, item, index), width = widths[i] - PAD * 2;
+    // Numeric cells must not wrap into a second line.  They shrink only when a
+    // legitimately large Indian-formatted amount needs the extra room.
+    let size = STYLE.table;
+    if (column.align === 'right') {
+      doc.font('Helvetica').fontSize(size);
+      while (size > 5.5 && doc.widthOfString(content) > width) { size -= .25; doc.fontSize(size); }
+    }
+    doc.font('Helvetica').fontSize(size).fillColor(STYLE.ink).text(content, cellX + PAD, y + PAD, { width, align: column.align, lineGap: 1, lineBreak: column.align === 'left' || column.align === 'center' });
+    doc.save().lineWidth(.35).strokeColor(STYLE.line).moveTo(cellX, y).lineTo(cellX, y + height).stroke().restore(); cellX += widths[i];
+  });
+  doc.save().lineWidth(.55).strokeColor(STYLE.line).rect(x, y, total, height).stroke().restore();
+}
+function splitLongRow(doc, item, index, columns, widths, maxHeight) {
+  const description = cell('description', item, index);
+  if (rowHeight(doc, item, index, columns, widths) <= maxHeight || !description) return [item];
+  const words = description.split(/\s+/), parts = []; let current = '';
+  words.forEach((word) => {
+    const candidate = current ? current + ' ' + word : word;
+    const candidateItem = { ...item, _descriptionText: candidate };
+    if (current && rowHeight(doc, candidateItem, index, columns, widths) > maxHeight) {
+      parts.push({ ...item, _descriptionText: current, _continuation: parts.length > 0 }); current = word;
+    } else current = candidate;
+  });
+  if (current) parts.push({ ...item, _descriptionText: current, _continuation: parts.length > 0 });
+  return parts;
+}
+
+function wordsBelowThousand(value) { return numberToWords.toWords(value).replace(/-/g, ' ').toUpperCase(); }
+function amountWords(total) {
+  let remaining = Math.max(0, Math.round(number(total)));
+  if (!remaining) return 'ZERO RUPEES ONLY';
+  const parts = [];
+  [[10000000, 'CRORE'], [100000, 'LAKH'], [1000, 'THOUSAND']].forEach(([unit, label]) => {
+    const count = Math.floor(remaining / unit);
+    if (count) { parts.push(wordsBelowThousand(count) + ' ' + label); remaining %= unit; }
+  });
+  if (remaining) parts.push(wordsBelowThousand(remaining));
+  return parts.join(' ') + ' RUPEES ONLY';
+}
+function totalRows(totals) { return [['Subtotal', inr(totals.subtotal)], ...(totals.gstType === 'IGST' && totals.igstAmount ? [['IGST', inr(totals.igstAmount)]] : []), ...(totals.gstType === 'CGST_SGST' && totals.cgstAmount ? [['CGST', inr(totals.cgstAmount)], ['SGST', inr(totals.sgstAmount)]] : []), ...(totals.roundOff ? [['Round Off', inr(totals.roundOff)]] : []), ['Grand Total', inr(totals.grandTotal)]]; }
+function totalsHeight(doc, totals, words, wordWidth) { return Math.max(totalRows(totals).length * 17 + PAD * 2, h(doc, words, wordWidth - PAD * 2) + 28); }
+function drawTotals(doc, y, totals) {
+  const p = page(doc), gap = 8, wordsWidth = Math.floor((p.width - gap) * .56), totalsWidth = p.width - gap - wordsWidth, words = amountWords(totals.grandTotal), height = totalsHeight(doc, totals, words, wordsWidth); drawBox(doc, p.x, y, wordsWidth, height); drawBox(doc, p.x + wordsWidth + gap, y, totalsWidth, height);
+  doc.font('Helvetica-Bold').fontSize(STYLE.body).fillColor(STYLE.accent).text('Amount (in words)', p.x + PAD, y + PAD, { width: wordsWidth - PAD * 2 }); doc.font('Helvetica').fontSize(STYLE.body).fillColor(STYLE.ink).text(words, p.x + PAD, y + 20, { width: wordsWidth - PAD * 2, lineGap: 1 });
+  let rowY = y + PAD, totalsX = p.x + wordsWidth + gap; totalRows(totals).forEach((row, i, rows) => { const bold = i === rows.length - 1, color = bold ? STYLE.accent : STYLE.ink; doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(STYLE.body).fillColor(color); doc.text(row[0], totalsX + PAD, rowY, { width: totalsWidth * .48 }); doc.font(bold ? 'InvoiceCurrencyBold' : 'InvoiceCurrency').text(row[1], totalsX + totalsWidth * .48, rowY, { width: totalsWidth * .52 - PAD, align: 'right' }); rowY += 17; });
+  return y + height + GAP;
+}
+function bankLines(bank = {}) { return [['Beneficiary', bank.beneficiary], ['Bank', bank.bankName], ['A/C No.', bank.accountNumber], ['IFSC', bank.ifsc], ['Branch', bank.branch]].filter(([, v]) => text(v)).map(([label, v]) => label + ': ' + text(v)); }
+function bankHeight(doc, company, width) { const lines = bankLines(company.bankDetails), bank = lines.length ? 22 + lines.reduce((s, line) => s + h(doc, line, width / 2 - PAD * 2, STYLE.small), 0) : 22; return Math.max(70, bank + PAD * 2, h(doc, 'For ' + text(company.name), width / 2 - PAD * 2, STYLE.body, 'Helvetica-Bold') + 55); }
+function drawBank(doc, y, company) {
+  const p = page(doc), height = bankHeight(doc, company, p.width), half = p.width / 2, lines = bankLines(company.bankDetails); drawBox(doc, p.x, y, p.width, height); doc.save().lineWidth(.45).strokeColor(STYLE.line).moveTo(p.x + half, y).lineTo(p.x + half, y + height).stroke().restore();
+  doc.font('Helvetica-Bold').fontSize(STYLE.body).fillColor(STYLE.accent).text('Bank Details', p.x + PAD, y + PAD, { width: half - PAD * 2 }); let lineY = y + 21; lines.forEach((line) => { const lineHeight = h(doc, line, half - PAD * 2, STYLE.small); doc.font('Helvetica').fontSize(STYLE.small).fillColor(STYLE.ink).text(line, p.x + PAD, lineY, { width: half - PAD * 2, lineGap: 1 }); lineY += lineHeight; });
+  const right = p.x + half; doc.font('Helvetica-Bold').fontSize(STYLE.body).text('For ' + text(company.name), right + PAD, y + PAD, { width: half - PAD * 2, align: 'center' }); const signatureY = y + height - 28; doc.save().lineWidth(.6).strokeColor(STYLE.line).moveTo(right + 42, signatureY).lineTo(right + half - 42, signatureY).stroke().restore(); doc.font('Helvetica').fontSize(STYLE.small).text('Authorised Signatory', right + PAD, signatureY + 4, { width: half - PAD * 2, align: 'center' }); return y + height + GAP;
 }
 
 async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
-  // output
-  const dateStr = invoiceObj.invoice_date || new Date().toISOString().slice(0,10);
-  const custSafe = safeName(invoiceObj.customer_name || invoiceObj.customer || 'customer');
-  const outdir = path.join(process.cwd(), 'storage', 'invoices', dateStr, custSafe);
-  fs.mkdirSync(outdir, { recursive: true });
-  const filename = `${invoiceObj.invoice_number || 'invoice'}.pdf`;
-  const filepath = path.join(outdir, filename);
-
-  // compute totals/items if missing
-  if (!invoiceObj.subtotal || !invoiceObj.total || !invoiceObj.total_gst) {
-    const calc = calculateTotals(invoiceObj.items || []);
-    invoiceObj.subtotal = calc.subtotal;
-    invoiceObj.total_gst = calc.totalGst;
-    invoiceObj.total = calc.total;
-    invoiceObj.items = calc.items;
-  }
-
-  const doc = new PDFDocument({ size: PAGE.size, margins: { top: PAGE.margin, bottom: PAGE.margin, left: PAGE.margin, right: PAGE.margin } });
-  const stream = fs.createWriteStream(filepath);
-  doc.pipe(stream);
-
-  const page = doc.page;
-  const contentW = page.width - page.margins.left - page.margins.right;
-  let cursorY = page.margins.top;
-
-  const F_REG = 'Helvetica', F_BOLD = 'Helvetica-Bold', F_ITALIC = 'Helvetica-Oblique';
-
-  // Title centered
-  doc.font(F_BOLD).fontSize(STYLE.titleSize);
-  const titleH = doc.heightOfString('TAX INVOICE', { width: contentW });
-  doc.text('TAX INVOICE', page.margins.left, cursorY, { width: contentW, align: 'center' });
-  cursorY += titleH + STYLE.gap * 1.2;
-
-  // Company box (full width) - clean and minimal
-  const compBoxH = 86;
-  const compX = page.margins.left, compW = contentW, compY = cursorY;
-  doc.roundedRect(compX, compY, compW, compBoxH, STYLE.boxRadius).lineWidth(0.7).stroke();
-
-  // Logo area (left)
-  const logoX = compX + 12, logoY = compY + 12;
-  const logoW = Math.min(STYLE.logoMaxW, Math.floor(compW * 0.16));
-  const logoH = Math.min(STYLE.logoMaxH, compBoxH - 24);
-  // Render logo image if provided (kept optional). If no image provided, leave blank.
-  try {
-    if (companyConfig.logoPath && fs.existsSync(companyConfig.logoPath)) {
-      // draw image fitted into reserved area
-      try {
-        doc.image(companyConfig.logoPath, logoX, logoY, { fit: [logoW, logoH], align: 'left', valign: 'top' });
-      } catch (e) {
-        // If image fails to load, draw an empty placeholder border so layout stays consistent
-        doc.rect(logoX, logoY, logoW, logoH).lineWidth(0.4).stroke();
-      }
-    } else {
-      // no logo file, draw an empty placeholder rectangle to preserve spacing
-      doc.rect(logoX, logoY, logoW, logoH).lineWidth(0.4).stroke();
-    }
-  } catch (e) {
-    // ignore filesystem errors and continue without logo
-  }
-
-  // Company text (right of logo) - aligned left, neat spacing
-  const compTextX = logoX + logoW + 5;
-  const compTextW = compX + compW - compTextX - 12;
-  doc.font(F_BOLD).fontSize(STYLE.compNameSize).text(companyConfig.name || invoiceObj.supplier_name || '', compTextX, compY + 12, { width: compTextW, align: 'left' });
-  doc.font(F_REG).fontSize(STYLE.normalSize).text(companyConfig.address || invoiceObj.supplier_address || '', compTextX, compY + 30, { width: compTextW, align: 'left' });
-  doc.font(F_REG).fontSize(STYLE.normalSize).text('Email: ' + companyConfig.email || '', compTextX, compY + 42, { width: compTextW, align: 'left' });
-  doc.font(F_REG).fontSize(STYLE.normalSize).text('Mobile: ' + companyConfig.mobile, compTextX, compY + 54);
-  doc.font(F_BOLD).fontSize(STYLE.compNameSize - 2).text(`GSTIN: ${companyConfig.gst || invoiceObj.supplier_gst || ''}`, compTextX, compY + compBoxH - 15, { width: compTextW, align: 'left' });
-
-  cursorY += compBoxH + STYLE.gap;
-
-  // Bill To & Invoice Details (side by side)
-  const rowH = 74;
-  const rowX = page.margins.left, rowW = contentW;
-  const leftW = Math.floor(rowW * 0.55), rightW = rowW - leftW - 12;
-  const leftX = rowX, rightX = rowX + leftW + 12;
-  const rowY = cursorY;
-
-  // Left box
-  doc.roundedRect(leftX, rowY, leftW, rowH, STYLE.boxRadius).lineWidth(0.5).stroke();
-  doc.font(F_BOLD).fontSize(STYLE.normalSize+1).text('Bill To:', leftX + 10, rowY + 8);
-  // Name
-  doc.font(F_BOLD).fontSize(STYLE.normalSize).text('Name: ' + (invoiceObj.customer_name || invoiceObj.bill_to || ''), leftX + 10, rowY + 26, { width: leftW - 20 });
-  // Address (handle long address by wrapping and reducing font size)
-  let billToY = rowY + 26 + 18;
-  doc.font(F_BOLD).fontSize(STYLE.normalSize).text('Address:', leftX + 10, billToY, { width: 60 });
-  let billToAddress = invoiceObj.customer_address || invoiceObj.bill_to_address || '';
-  let billToAddressFontSize = STYLE.normalSize;
-  let billToAddressBoxW = leftW - 72;
-  doc.font(F_REG).fontSize(billToAddressFontSize);
-  while (doc.heightOfString(billToAddress, { width: billToAddressBoxW }) > 18 && billToAddressFontSize > STYLE.minFontSize) {
-    billToAddressFontSize--;
-    doc.fontSize(billToAddressFontSize);
-  }
-  doc.text(billToAddress, leftX + 10 + 42, billToY, { width: billToAddressBoxW });
-  // Gap after address
-  billToY += 18;
-  // GSTIN (bold)
-  doc.font(F_BOLD).fontSize(STYLE.normalSize).text('GSTIN: ' + (invoiceObj.customer_gst || invoiceObj.bill_to_gstin || ''), leftX + 10, billToY, { width: leftW - 20 });
-
-  // Challan No. logic - prefer provided challan_no, fallback to generated from invoice number
-  let challanNo = invoiceObj.challan_no || '';
-  if (!challanNo && invoiceObj.invoice_number) {
-    const invNumStr = String(invoiceObj.invoice_number);
-    challanNo = 'CH' + invNumStr.slice(-4);
-  }
-
-  // Right box
-  doc.roundedRect(rightX, rowY, rightW, rowH, STYLE.boxRadius).lineWidth(0.5).stroke();
-  doc.font(F_BOLD).fontSize(STYLE.normalSize+1).text('Invoice Details:', rightX + 10, rowY + 8);
-  doc.font(F_REG).fontSize(STYLE.normalSize);
-  doc.text(`Invoice No: ${invoiceObj.invoice_number || ''}`, rightX + 10, rowY + 26, { width: rightW - 20 });
-  doc.text(`Date: ${invoiceObj.invoice_date || ''}`, rightX + 10, rowY + 44, { width: rightW - 20 });
-  doc.text(`Challan No: ${challanNo}`, rightX + 10, rowY + 62, { width: rightW - 20 });
-
-  cursorY += rowH + STYLE.gap;
-
-  // Items table area - compute available height allocating space for totals + bottom box + footer message
-  const footerReserved = 30; // footer message height
-  const bottomAreaReserved = 200; // totals + bottom bank/sign box
-  const tableTop = cursorY;
-  const tableBottomLimit = page.height - page.margins.bottom - bottomAreaReserved - footerReserved;
-  const tableH = Math.max(80, tableBottomLimit - tableTop);
-  const tableX = page.margins.left, tableW = contentW, tableY = tableTop;
-
-  // Table outer rect
-  doc.rect(tableX, tableY, tableW, tableH).lineWidth(0.5).stroke();
-
-  // Column widths
-  const items = invoiceObj.items || [];
-  let gstType = 'IGST';
-  if (items.length > 0) {
-    const first = items[0];
-    if ((Number(first.cgst_rate) || 0) > 0 || (Number(first.sgst_rate) || 0) > 0) {
-      gstType = 'CGST_SGST';
-    }
-  }
-  let headers, colPercents;
-  if (gstType === 'CGST_SGST') {
-    // Insert HSN/SAC column after Description
-    headers = ['SNo','Description','HSN/SAC','Qty','Unit Price','CGST %','SGST %','Amount'];
-    colPercents = [6, 32, 12, 6, 12, 9, 9, 14];
-  } else {
-    headers = ['SNo','Description','HSN/SAC','Qty','Unit Price','IGST %','Amount'];
-    colPercents = [6, 34, 12, 6, 12, 10, 20];
-  }
-  const colWidths = colPercents.map(p => Math.floor((p/100) * tableW));
-
-  // Header
-  const headerH = 20;
-  doc.font(F_BOLD).fontSize(STYLE.normalSize);
-  let tx = tableX;
-  for (let i = 0; i < headers.length; i++) {
-    // Center align all headers, keep '%' on same line by removing space before %
-    let headerText = headers[i];
-    if (headerText.endsWith(' %')) headerText = headerText.replace(' %', '%');
-    doc.text(headerText, tx + 6, tableY + 6, {
-      width: colWidths[i] - 12,
-      align: 'center',
-      lineBreak: false
+  const invoice = { ...invoiceObj, items: Array.isArray(invoiceObj.items) ? invoiceObj.items.map((item) => ({ ...item })) : [] };
+  const gstType = determineGstType(invoice, companyConfig), totals = calculateTotals(invoice.items, gstType, invoice.round_off), columns = getColumns(gstType);
+  const date = text(invoice.invoice_date).slice(0, 10) || new Date().toISOString().slice(0, 10), directory = path.join(process.cwd(), 'storage', 'invoices', date, safeName(invoice.customer_name || invoice.customer));
+  fs.mkdirSync(directory, { recursive: true }); const filePath = path.join(directory, safeName(invoice.invoice_number || 'invoice') + '.pdf');
+  const doc = new PDFDocument({ size: PAGE.size, margins: { top: PAGE.margin, bottom: PAGE.margin, left: PAGE.margin, right: PAGE.margin }, info: { Title: 'Invoice ' + text(invoice.invoice_number) } }), stream = fs.createWriteStream(filePath); doc.registerFont('InvoiceCurrency', CURRENCY_FONT); doc.registerFont('InvoiceCurrencyBold', CURRENCY_FONT_BOLD); doc.pipe(stream);
+  const note = text(companyConfig.footer || invoice.footer_note); let pageIndex = 1, y = drawTitle(doc, page(doc).top); y = drawCompany(doc, y, invoice, companyConfig); y = drawParty(doc, y, invoice);
+  const p = page(doc), widths = columnWidths(columns, p.width); let tableHeight = drawHeader(doc, p.x, y, columns, widths); y += tableHeight;
+  const nextTablePage = () => { drawFooter(doc, note, pageIndex); doc.addPage(); pageIndex += 1; y = drawTitle(doc, page(doc).top, true); doc.font('Helvetica').fontSize(STYLE.small).fillColor(STYLE.muted).text('Invoice No: ' + text(invoice.invoice_number) + '    Date: ' + text(invoice.invoice_date), page(doc).x, y, { width: page(doc).width, align: 'center' }); y += 15; tableHeight = drawHeader(doc, page(doc).x, y, columns, widths); y += tableHeight; };
+  totals.items.forEach((item, index) => {
+    const maxRowHeight = page(doc).bottom - page(doc).top - 50;
+    splitLongRow(doc, item, index, columns, widths, maxRowHeight).forEach((part) => {
+      const height = rowHeight(doc, part, index, columns, widths);
+      if (y + height > page(doc).bottom && y > page(doc).top + tableHeight + 1) nextTablePage();
+      drawRow(doc, page(doc).x, y, height, part, index, columns, widths); y += height;
     });
-    // Draw vertical separators only between columns, not after last column
-    const xNext = tx + colWidths[i];
-    if (i < headers.length - 1) {
-      doc.moveTo(xNext, tableY).lineTo(xNext, tableY + tableH).lineWidth(STYLE.subtleLine).stroke();
-    }
-    tx += colWidths[i];
-  }
-  doc.moveTo(tableX, tableY + headerH).lineTo(tableX + tableW, tableY + headerH).lineWidth(0.5).stroke();
-
-  // Rows fitting logic (single page)
-  const minRowH = 10, maxRowH = 18;
-  const baseFont = STYLE.normalSize;
-  const rowAreaH = tableH - headerH - 8;
-  const rowCount = Math.max(0, items.length);
-
-  // compute row height & font once
-  let rowHVal = rowCount > 0 ? Math.floor(rowAreaH / rowCount) : maxRowH;
-  if (rowHVal > maxRowH) rowHVal = maxRowH;
-  if (rowHVal < minRowH) rowHVal = minRowH;
-  let fontSizeVal = Math.max(STYLE.minFontSize, Math.floor(baseFont * (rowHVal / maxRowH)));
-  if (fontSizeVal < STYLE.minFontSize) fontSizeVal = STYLE.minFontSize;
-
-  const descW = colWidths[1] - 12;
-  const computeRowHeights = (size) => {
-    doc.font(F_REG).fontSize(size);
-    return items.map(it => {
-      const rawDesc = `${it.product_name || ''}${it.description ? ' - ' + it.description : ''}`.trim();
-      const descH = rawDesc ? doc.heightOfString(rawDesc, { width: descW }) : doc.heightOfString(' ', { width: descW });
-      return Math.max(minRowH, Math.min(maxRowH * 2, Math.ceil(descH + 4)));
-    });
-  };
-
-  let rowHeights = computeRowHeights(fontSizeVal);
-  let totalRowHeight = rowHeights.reduce((sum, h) => sum + h, 0);
-  while (totalRowHeight > rowAreaH && fontSizeVal > STYLE.minFontSize) {
-    fontSizeVal--;
-    rowHeights = computeRowHeights(fontSizeVal);
-    totalRowHeight = rowHeights.reduce((sum, h) => sum + h, 0);
-  }
-
-  if (totalRowHeight > rowAreaH && rowCount > 0) {
-    rowHVal = Math.max(minRowH, Math.min(maxRowH, Math.floor(rowAreaH / rowCount)));
-    rowHeights = Array(rowCount).fill(rowHVal);
-    totalRowHeight = rowHeights.reduce((sum, h) => sum + h, 0);
-  }
-
-  doc.font(F_REG).fontSize(fontSizeVal);
-  let currentRowY = tableY + headerH + 6;
-
-  if (rowCount === 0) {
-    doc.font(F_ITALIC).fontSize(STYLE.normalSize).text('No items', tableX + 8, tableY + headerH + 8);
-  } else {
-    for (let i = 0; i < rowCount; i++) {
-      const it = items[i] || {};
-      const rowH = rowHeights[i] || rowHVal;
-      let cx = tableX;
-
-      // SNo
-      doc.text(String(i+1), cx + 6, currentRowY + (rowH - fontSizeVal) / 2, { width: colWidths[0] - 12, align: 'center' });
-      cx += colWidths[0];
-
-      // Description (wrap long text within the column width)
-      const rawDesc = `${it.product_name || ''}${it.description ? ' - ' + it.description : ''}`.trim();
-      doc.text(rawDesc, cx + 6, currentRowY + 2, {
-        width: descW,
-        align: 'left',
-        ellipsis: true,
-        lineBreak: true,
-        paragraphGap: 0
-      });
-      cx += colWidths[1];
-
-      // HSN/SAC (after description)
-      const hsnVal = it.hsn_sac || '';
-      doc.text(hsnVal, cx + 6, currentRowY + (rowH - fontSizeVal) / 2, { width: colWidths[2] - 12, align: 'center' });
-      cx += colWidths[2];
-
-      // Qty
-      const qtyStr = it.quantity !== undefined && it.quantity !== null ? String(it.quantity) : '';
-      doc.text(qtyStr, cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[3] - 12, align: 'right' });
-      cx += colWidths[3];
-
-      // Unit Price
-      const up = (it.unit_price !== undefined && it.unit_price !== '') ? Number(it.unit_price).toFixed(2) : '';
-      doc.text(up, cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[4] - 12, align: 'right' });
-      cx += colWidths[4];
-
-      if (gstType === 'CGST_SGST') {
-        // CGST %
-        doc.text((Number(it.cgst_rate) || 0).toFixed(2), cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[5] - 12, align: 'right' });
-        cx += colWidths[5];
-        // SGST %
-        doc.text((Number(it.sgst_rate) || 0).toFixed(2), cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[6] - 12, align: 'right' });
-        cx += colWidths[6];
-      } else {
-        // IGST %
-        doc.text((Number(it.igst_rate) || 0).toFixed(2), cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[5] - 12, align: 'right' });
-        cx += colWidths[5];
-      }
-
-      // Amount
-      // Center align and ensure value fits inside cell, shrink font if needed
-      const gst = (Number(it.cgst_rate)||0) + (Number(it.sgst_rate)||0) + (Number(it.igst_rate)||0);
-      const line = (Number(it.quantity)||0) * (Number(it.unit_price)||0);
-      const gstAmt = line * (gst / 100);
-      const total = line + gstAmt;
-      let amountStr = Number(total).toFixed(2);
-      let amountFontSize = fontSizeVal;
-      // If value too wide, shrink font
-      doc.font(F_REG).fontSize(amountFontSize);
-      while (doc.widthOfString(amountStr) > colWidths[colWidths.length-1] - 12 && amountFontSize > STYLE.minFontSize) {
-        amountFontSize--;
-        doc.fontSize(amountFontSize);
-      }
-      doc.text(amountStr, cx + 6, currentRowY + (rowHVal - amountFontSize)/2, {
-        width: colWidths[colWidths.length-1] - 12,
-        align: 'right',
-        ellipsis: true
-      });
-
-      currentRowY += rowHVal;
-    }
-  }
-
-  // Move cursor below table
-  cursorY = tableY + tableH + STYLE.gap;
-
-  // Totals box (top-right)
-  const totW = Math.floor(contentW * 0.36), totH = 76;
-  const totX = page.margins.left + contentW - totW, totY = cursorY;
-  // Adjusted box position and width for better alignment
-  doc.roundedRect(totX, totY, totW, totH, STYLE.boxRadius).lineWidth(0.6).stroke();
-
-  // Calculate round off and rounded total
-  let roundOff = 0, roundedTotal = 0;
-  if (invoiceObj.total !== undefined && invoiceObj.total !== null) {
-    roundedTotal = Math.round(invoiceObj.total);
-    roundOff = +(roundedTotal - invoiceObj.total).toFixed(2);
-  }
-
-  // Format numbers in INR currency style
-  const formatINR = v => v !== undefined && v !== null ? parseFloat(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
-  doc.text('Subtotal', totX + 10, totY + 10, { width: totW - 20, align: 'left' });
-  doc.text(formatINR(invoiceObj.subtotal), totX + 10, totY + 10, { width: totW - 20, align: 'right' });
-  doc.text('Total GST', totX + 10, totY + 28, { width: totW - 20, align: 'left' });
-  doc.text(formatINR(invoiceObj.total_gst), totX + 10, totY + 28, { width: totW - 20, align: 'right' });
-  doc.text('Round Off', totX + 10, totY + 46, { width: totW - 20, align: 'left' });
-  doc.text((roundOff >= 0 ? '+' : '') + formatINR(roundOff), totX + 10, totY + 46, { width: totW - 20, align: 'right' });
-  doc.font(F_BOLD).text('Grand Total', totX + 10, totY + 64, { width: totW - 20, align: 'left' });
-  doc.text(formatINR(roundedTotal), totX + 10, totY + 64, { width: totW - 20, align: 'right' });
-
-  // Amount in words boxed (left of totals) — bold and boxed
-  // Map amount-in-words to the rounded Grand Total (roundedTotal computed above)
-  const amountWords = roundedTotal ? (numberToWords.toWords(roundedTotal).toUpperCase() + ' RUPEES ONLY') : '';
-  const wordsBoxX = page.margins.left, wordsBoxY = totY;
-  const wordsBoxW = contentW - totW - 16, wordsBoxH = 56; // Adjusted width for alignment
-  doc.roundedRect(wordsBoxX, wordsBoxY, wordsBoxW, wordsBoxH, 6).lineWidth(0.6).stroke();
-  doc.font(F_BOLD).fontSize(STYLE.normalSize).text('Amount (in words):', wordsBoxX + 12, wordsBoxY + 12, { width: wordsBoxW - 24, align: 'left' });
-  doc.font(F_BOLD).fontSize(STYLE.normalSize).text(amountWords, wordsBoxX + 12, wordsBoxY + 28, { width: wordsBoxW - 24, align: 'left' });
-
-  cursorY = totY + Math.max(totH, wordsBoxH) + STYLE.gap;
-
-  // Bottom box (Bank Details | For Company & Signature) - equal split
-  const bottomBoxH = 100;
-  const bottomBoxY = cursorY;
-  const bottomBoxX = page.margins.left, bottomBoxW = contentW;
-  doc.roundedRect(bottomBoxX, bottomBoxY, bottomBoxW, bottomBoxH, STYLE.boxRadius).lineWidth(0.7).stroke();
-
-  // equal split
-  const innerPad = 12;
-  const halfW = Math.floor((bottomBoxW - innerPad*2 - 1) / 2); // -1 for divider
-  const leftBoxX = bottomBoxX + innerPad, rightBoxX = bottomBoxX + innerPad + halfW + 1;
-  const innerY = bottomBoxY + 12;
-
-  // vertical divider (single thin line)
-  const dividerX = bottomBoxX + innerPad + halfW;
-  doc.moveTo(dividerX, bottomBoxY + 2).lineTo(dividerX, bottomBoxY + bottomBoxH - 2).lineWidth(0.8).stroke();
-
-  // Left: Bank Details title + lines
-  doc.font(F_BOLD).fontSize(STYLE.normalSize+0.5).text('Bank Details:', leftBoxX, innerY);
-  doc.font(F_REG).fontSize(STYLE.smallSize);
-  // Hardcoded static bank details
-  const bankLines = [
-    'Bank Name: BANK OF BARODA',
-    'A/C No: 38350200000607',
-    'IFSC: BARB0MULWES',
-    'Branch: Mulund West',
-    'Beneficiary: VISTAR ENTERPRISES'
-  ];
-  bankLines.forEach((ln, idx) => {
-    doc.text(ln, leftBoxX, innerY + 18 + idx*14, { width: halfW - 8 });
   });
-
-  // Right: For Company & signature (clean)
-  doc.font(F_BOLD).fontSize(STYLE.normalSize+1).text(`For ${companyConfig.name || invoiceObj.supplier_name || ''}`, rightBoxX + 18, innerY); // Added left padding
-  // signature line (clean)
-  const sigY = innerY + 54;
-  doc.moveTo(rightBoxX + 24, sigY).lineTo(rightBoxX + halfW - 6, sigY).lineWidth(0.7).stroke(); // Added left padding to line
-  // 'Authorised Signatory' aligned to bottom right of the box
-  doc.font(F_REG).fontSize(STYLE.normalSize).text('Authorised Signatory', rightBoxX, bottomBoxY + bottomBoxH - 22, {
-    width: halfW - 8,
-    align: 'right'
-  });
-
-  // Footer message at extreme bottom (outside boxed areas) - muted small text
-  const footerMsg = companyConfig.footerNote || invoiceObj.footer_note || 'This is a computer-generated invoice and does not require a physical signature.';
-  const footerY = page.height - page.margins.bottom - 12;
-  doc.font(F_REG).fontSize(STYLE.smallSize).fillColor('#666666').text(footerMsg, page.margins.left, footerY, { width: contentW, align: 'center' });
-  doc.fillColor('black');
-
-  // finish
-  doc.end();
-
-  return new Promise((resolve, reject) => {
-    stream.on('finish', () => resolve(filepath));
-    stream.on('error', reject);
-  });
+  const finalHeight = () => totalsHeight(doc, totals, amountWords(totals.grandTotal), Math.ceil(page(doc).width * .56)) + GAP + bankHeight(doc, companyConfig, page(doc).width);
+  if (y + finalHeight() > page(doc).bottom) { drawFooter(doc, note, pageIndex); doc.addPage(); pageIndex += 1; y = drawTitle(doc, page(doc).top, true); }
+  // Keep the financial summary visually tied to payment/signature information.
+  // Any remaining space belongs between the item table and these final blocks.
+  y = Math.max(y + GAP, page(doc).bottom - finalHeight());
+  y = drawTotals(doc, y, totals); drawBank(doc, y, companyConfig); drawFooter(doc, note, pageIndex); doc.end();
+  await new Promise((resolve, reject) => stream.on('finish', resolve).on('error', reject)); return filePath;
 }
-
-module.exports = { calculateTotals, generateAndSavePDF };
+module.exports = { calculateTotals, generateAndSavePDF, determineGstType };

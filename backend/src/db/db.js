@@ -38,8 +38,10 @@ CREATE TABLE IF NOT EXISTS parties (
   name TEXT,
   address TEXT
 );
-CREATE TABLE IF NOT EXISTS invoice_seq (id INTEGER PRIMARY KEY CHECK (id = 1), last_seq INTEGER);
-INSERT OR IGNORE INTO invoice_seq (id,last_seq) VALUES (1,0);
+CREATE TABLE IF NOT EXISTS invoice_seq (
+  fy_start_year INTEGER PRIMARY KEY,
+  last_seq INTEGER
+);
 CREATE TABLE IF NOT EXISTS parties (
   gst TEXT PRIMARY KEY,
   name TEXT,

@@ -195,26 +195,32 @@ async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
   }
   let headers, colPercents;
   if (gstType === 'CGST_SGST') {
-    headers = ['SNo','Description','Qty','Unit Price','CGST %','SGST %','Amount'];
-    colPercents = [6, 45, 8, 12, 9, 9, 12]; // Amount column width increased
+    // Columns: SNo | Description | Qty | Unit Price | CGST % | CGST Amt | SGST % | SGST Amt | Amount
+    headers = ['SNo','Description','Qty','Unit Price','CGST %','CGST Amt','SGST %','SGST Amt','Amount'];
+    colPercents = [6, 42, 9, 10, 6, 8, 6, 8, 11];
   } else {
     headers = ['SNo','Description','Qty','Unit Price','IGST %','Amount'];
-      colPercents = [6, 42, 8, 12, 10, 22]; // Amount column width increased for IGST
+    colPercents = [6, 46, 9, 12, 10, 17];
   }
   const colWidths = colPercents.map(p => Math.floor((p/100) * tableW));
+  const extraWidth = tableW - colWidths.reduce((sum, w) => sum + w, 0);
+  if (extraWidth > 0) colWidths[colWidths.length - 1] += extraWidth;
 
   // Header
-  const headerH = 20;
-  doc.font(F_BOLD).fontSize(STYLE.normalSize);
+  const headerH = gstType === 'CGST_SGST' ? 28 : 20;
+  const headerFontSize = gstType === 'CGST_SGST' ? STYLE.smallSize : STYLE.normalSize;
+  doc.font(F_BOLD).fontSize(headerFontSize);
   let tx = tableX;
   for (let i = 0; i < headers.length; i++) {
     // Center align all headers, keep '%' on same line by removing space before %
     let headerText = headers[i];
     if (headerText.endsWith(' %')) headerText = headerText.replace(' %', '%');
+    headerText = headerText.replace('CGST Amt', 'CGST\nAmt').replace('SGST Amt', 'SGST\nAmt');
     doc.text(headerText, tx + 6, tableY + 6, {
       width: colWidths[i] - 12,
       align: 'center',
-      lineBreak: false
+      lineBreak: true,
+      paragraphGap: 0
     });
     // Draw vertical separators only between columns, not after last column
     const xNext = tx + colWidths[i];
@@ -225,7 +231,7 @@ async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
   }
   doc.moveTo(tableX, tableY + headerH).lineTo(tableX + tableW, tableY + headerH).lineWidth(0.5).stroke();
 
-  // Rows fitting logic (single page)
+  // Rows fitting logic (single page) — compute per-row height from description and shrink fonts when necessary
   const minRowH = 10, maxRowH = 18;
   const baseFont = STYLE.normalSize;
   const rowAreaH = tableH - headerH - 8;
@@ -238,6 +244,30 @@ async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
   let fontSizeVal = Math.max(STYLE.minFontSize, Math.floor(baseFont * (rowHVal / maxRowH)));
   if (fontSizeVal < STYLE.minFontSize) fontSizeVal = STYLE.minFontSize;
 
+  const descW = colWidths[1] - 12;
+  const computeRowHeights = (size) => {
+    doc.font(F_REG).fontSize(size);
+    return items.map(it => {
+      const rawDesc = `${it.product_name || ''}${it.description ? ' - ' + it.description : ''}`.trim();
+      const descH = rawDesc ? doc.heightOfString(rawDesc, { width: descW }) : doc.heightOfString(' ', { width: descW });
+      return Math.max(minRowH, Math.min(maxRowH * 2, Math.ceil(descH + 4)));
+    });
+  };
+
+  let rowHeights = computeRowHeights(fontSizeVal);
+  let totalRowHeight = rowHeights.reduce((sum, h) => sum + h, 0);
+  while (totalRowHeight > rowAreaH && fontSizeVal > STYLE.minFontSize) {
+    fontSizeVal--;
+    rowHeights = computeRowHeights(fontSizeVal);
+    totalRowHeight = rowHeights.reduce((sum, h) => sum + h, 0);
+  }
+
+  if (totalRowHeight > rowAreaH && rowCount > 0) {
+    rowHVal = Math.max(minRowH, Math.min(maxRowH, Math.floor(rowAreaH / rowCount)));
+    rowHeights = Array(rowCount).fill(rowHVal);
+    totalRowHeight = rowHeights.reduce((sum, h) => sum + h, 0);
+  }
+
   doc.font(F_REG).fontSize(fontSizeVal);
   let currentRowY = tableY + headerH + 6;
 
@@ -246,65 +276,88 @@ async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
   } else {
     for (let i = 0; i < rowCount; i++) {
       const it = items[i] || {};
+      const rowH = rowHeights[i] || rowHVal;
       let cx = tableX;
 
       // SNo
-      doc.text(String(i+1), cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[0] - 12, align: 'center' });
+      doc.text(String(i+1), cx + 6, currentRowY + (rowH - fontSizeVal) / 2, { width: colWidths[0] - 12, align: 'center' });
       cx += colWidths[0];
 
-      // Description (truncate if too tall)
-      const descW = colWidths[1] - 12;
+      // Description (wrap)
       const rawDesc = `${it.product_name || ''}${it.description ? ' - ' + it.description : ''}`.trim();
-      let desc = rawDesc;
-      const estH = doc.heightOfString(desc, { width: descW });
-      if (estH > rowHVal) desc = truncateToWidth(doc, descW, F_REG, fontSizeVal);
-      doc.text(desc, cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: descW, align: 'left' });
+      doc.text(rawDesc, cx + 6, currentRowY + 2, {
+        width: descW,
+        align: 'left',
+        ellipsis: true,
+        lineBreak: true,
+        paragraphGap: 0
+      });
       cx += colWidths[1];
 
-      // Qty
+      // Qty (shrink if needed)
       const qtyStr = it.quantity !== undefined && it.quantity !== null ? String(it.quantity) : '';
-      doc.text(qtyStr, cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[2] - 12, align: 'right' });
+      let qtyFont = fontSizeVal;
+      doc.font(F_REG).fontSize(qtyFont);
+      while (qtyStr && doc.widthOfString(qtyStr) > colWidths[2] - 12 && qtyFont > STYLE.minFontSize) {
+        qtyFont--;
+        doc.fontSize(qtyFont);
+      }
+      doc.text(qtyStr, cx + 6, currentRowY + (rowH - qtyFont) / 2, { width: colWidths[2] - 12, align: 'right' });
+      doc.fontSize(fontSizeVal);
       cx += colWidths[2];
 
       // Unit Price
       const up = (it.unit_price !== undefined && it.unit_price !== '') ? Number(it.unit_price).toFixed(2) : '';
-      doc.text(up, cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[3] - 12, align: 'right' });
+      doc.text(up, cx + 6, currentRowY + (rowH - fontSizeVal) / 2, { width: colWidths[3] - 12, align: 'right' });
       cx += colWidths[3];
 
       if (gstType === 'CGST_SGST') {
         // CGST %
-        doc.text((Number(it.cgst_rate) || 0).toFixed(2), cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[4] - 12, align: 'right' });
+        const cgstRate = (Number(it.cgst_rate) || 0).toFixed(2);
+        doc.text(cgstRate, cx + 6, currentRowY + (rowH - fontSizeVal) / 2, { width: colWidths[4] - 12, align: 'right' });
         cx += colWidths[4];
-        // SGST %
-        doc.text((Number(it.sgst_rate) || 0).toFixed(2), cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[5] - 12, align: 'right' });
+
+        // CGST Amt
+        const line = (Number(it.quantity)||0) * (Number(it.unit_price)||0);
+        const cgstAmt = line * ((Number(it.cgst_rate)||0) / 100);
+        const cgstAmtStr = cgstAmt ? Number(cgstAmt).toFixed(2) : '0.00';
+        doc.text(cgstAmtStr, cx + 6, currentRowY + (rowH - fontSizeVal) / 2, { width: colWidths[5] - 12, align: 'right' });
         cx += colWidths[5];
+
+        // SGST %
+        const sgstRate = (Number(it.sgst_rate) || 0).toFixed(2);
+        doc.text(sgstRate, cx + 6, currentRowY + (rowH - fontSizeVal) / 2, { width: colWidths[6] - 12, align: 'right' });
+        cx += colWidths[6];
+
+        // SGST Amt
+        const sgstAmt = line * ((Number(it.sgst_rate)||0) / 100);
+        const sgstAmtStr = sgstAmt ? Number(sgstAmt).toFixed(2) : '0.00';
+        doc.text(sgstAmtStr, cx + 6, currentRowY + (rowH - fontSizeVal) / 2, { width: colWidths[7] - 12, align: 'right' });
+        cx += colWidths[7];
       } else {
         // IGST %
-        doc.text((Number(it.igst_rate) || 0).toFixed(2), cx + 6, currentRowY + (rowHVal - fontSizeVal)/2, { width: colWidths[4] - 12, align: 'right' });
+        doc.text((Number(it.igst_rate) || 0).toFixed(2), cx + 6, currentRowY + (rowH - fontSizeVal) / 2, { width: colWidths[4] - 12, align: 'right' });
         cx += colWidths[4];
       }
 
-      // Amount
-      // Center align and ensure value fits inside cell, shrink font if needed
-      const gst = (Number(it.cgst_rate)||0) + (Number(it.sgst_rate)||0) + (Number(it.igst_rate)||0);
-      const line = (Number(it.quantity)||0) * (Number(it.unit_price)||0);
-      const gstAmt = line * (gst / 100);
-      const total = line + gstAmt;
-      let amountStr = Number(total).toFixed(2);
+      // Amount (total)
+      const gstTotal = (Number(it.cgst_rate)||0) + (Number(it.sgst_rate)||0) + (Number(it.igst_rate)||0);
+      const lineBase = (Number(it.quantity)||0) * (Number(it.unit_price)||0);
+      const totalAmt = lineBase + (lineBase * (gstTotal / 100));
+      let amountStr = Number(totalAmt).toFixed(2);
       let amountFontSize = fontSizeVal;
-      // If value too wide, shrink font
       doc.font(F_REG).fontSize(amountFontSize);
       while (doc.widthOfString(amountStr) > colWidths[colWidths.length-1] - 12 && amountFontSize > STYLE.minFontSize) {
         amountFontSize--;
         doc.fontSize(amountFontSize);
       }
-      doc.text(amountStr, cx + 6, currentRowY + (rowHVal - amountFontSize)/2, {
+      doc.text(amountStr, cx + 6, currentRowY + (rowH - amountFontSize) / 2, {
         width: colWidths[colWidths.length-1] - 12,
         align: 'right',
         ellipsis: true
       });
 
-      currentRowY += rowHVal;
+      currentRowY += rowH;
     }
   }
 
