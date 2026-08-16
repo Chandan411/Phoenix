@@ -12,11 +12,13 @@ import CurrencyFormat from '../utils/CurrencyFormat.jsx';
 
 const cgstSgstOptions = [2.5, 9, 14];
 const igstOptions = [5, 18, 28];
+const QUANTITY_UNITS = ['Pieces', 'Packet', 'Kg'];
 
 const emptyItem = () => ({
   product_name: '',
   hsn_sac: '',
   quantity: 1,
+  quantity_unit: 'Pieces',
   unit_price: 0,
   cgst_rate: 0,
   sgst_rate: 0,
@@ -71,10 +73,11 @@ export default function InvoiceForm({ invoice, onDone }) {
                 console.error('Error fetching product for HSN/SAC:', e);
               }
             }
+            const quantity_unit = it.quantity_unit || 'Pieces';
             if (isCgstSgst) {
-              return { ...it, hsn_sac, cgst_rate: Number(it.cgst_rate) || 0, sgst_rate: Number(it.sgst_rate) || 0, igst_rate: 0 };
+              return { ...it, hsn_sac, quantity_unit, cgst_rate: Number(it.cgst_rate) || 0, sgst_rate: Number(it.sgst_rate) || 0, igst_rate: 0 };
             } else {
-              return { ...it, hsn_sac, igst_rate: Number(it.igst_rate) || 0, cgst_rate: 0, sgst_rate: 0 };
+              return { ...it, hsn_sac, quantity_unit, igst_rate: Number(it.igst_rate) || 0, cgst_rate: 0, sgst_rate: 0 };
             }
           }));
           setItems(updatedItems);
@@ -163,6 +166,9 @@ export default function InvoiceForm({ invoice, onDone }) {
       if (!String(item.hsn_sac || '').trim()) errors[`item_hsn_sac_${idx}`] = "HSN/SAC code is required";
       if (!item.quantity || item.quantity <= 0) errors[`item_quantity_${idx}`] = "Quantity must be > 0";
       if (!item.unit_price || item.unit_price < 0) errors[`item_unit_price_${idx}`] = "Unit price required";
+      if (!item.quantity_unit || !QUANTITY_UNITS.includes(item.quantity_unit)) {
+        errors[`item_quantity_unit_${idx}`] = "Valid quantity unit is required";
+      }
       if (gstType === 'CGST_SGST') {
         if (item.cgst_rate === undefined || item.cgst_rate === null || item.cgst_rate === '' || Number(item.cgst_rate) === 0) {
           errors[`item_cgst_rate_${idx}`] = "CGST rate is required";
@@ -342,7 +348,7 @@ export default function InvoiceForm({ invoice, onDone }) {
                         <TableCell sx={{ width: 40 }}>Sr No.</TableCell>
                         <TableCell sx={{ width: 220 }}>Product</TableCell>
                         <TableCell sx={{ width: 120 }}>HSN/SAC</TableCell>
-                        <TableCell sx={{ width: 80 }}>Qty</TableCell>
+                        <TableCell sx={{ width: 150 }}>Qty</TableCell>
                         <TableCell sx={{ width: 120 }}>Unit Price</TableCell>
                         {gstType === 'CGST_SGST' ? (
                           <>
@@ -391,20 +397,35 @@ export default function InvoiceForm({ invoice, onDone }) {
                             />
                           </TableCell>
                           <TableCell>
-                            <TextField
-                              type="number"
-                              value={it.quantity}
-                              onChange={e => {
-                                updateItem(idx, 'quantity', e.target.value);
-                                setFieldErrors(errors => ({ ...errors, [`item_quantity_${idx}`]: undefined }));
-                              }}
-                              error={!!fieldErrors[`item_quantity_${idx}`]}
-                              helperText={fieldErrors[`item_quantity_${idx}`]}
-                              size="small"
-                              fullWidth
-                              variant="outlined"
-                              placeholder="Qty"
-                            />
+                            <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+                              <TextField
+                                type="number"
+                                value={it.quantity}
+                                onChange={e => {
+                                  updateItem(idx, 'quantity', e.target.value);
+                                  setFieldErrors(errors => ({ ...errors, [`item_quantity_${idx}`]: undefined }));
+                                }}
+                                error={!!fieldErrors[`item_quantity_${idx}`]}
+                                helperText={fieldErrors[`item_quantity_${idx}`]}
+                                size="small"
+                                variant="outlined"
+                                placeholder="Qty"
+                                sx={{ flex: 1, minWidth: 60 }}
+                                inputProps={{ step: 'any' }}
+                              />
+                              <TextField
+                                select
+                                value={it.quantity_unit || 'Pieces'}
+                                onChange={e => updateItem(idx, 'quantity_unit', e.target.value)}
+                                size="small"
+                                variant="outlined"
+                                sx={{ minWidth: 90 }}
+                              >
+                                {QUANTITY_UNITS.map(unit => (
+                                  <MenuItem key={unit} value={unit}>{unit}</MenuItem>
+                                ))}
+                              </TextField>
+                            </Box>
                           </TableCell>
                           <TableCell>
                             <TextField

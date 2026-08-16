@@ -9,6 +9,9 @@ const {
 } = require("../services/pdfServiceVistar");
 const dayjs = require("dayjs");
 
+// Allowed quantity units
+const QUANTITY_UNITS = ["Pieces", "Packet", "Kg"];
+
 // Get financial year start year for a given date (Indian FY: Apr 1 - Mar 31)
 function getFinancialYearStartYear(dateStr) {
   const date = dayjs(dateStr);
@@ -37,6 +40,18 @@ function nextInvoiceNumber(invoiceDate) {
   });
   const seq = txn();
   return `INV-${fy}-${String(seq).padStart(4, "0")}`;
+}
+
+// Validate quantity unit
+function validateQuantityUnit(unit) {
+  return QUANTITY_UNITS.includes(unit);
+}
+
+// Normalize quantity unit (default to "Pieces" for backward compatibility)
+function normalizeQuantityUnit(unit) {
+  if (!unit) return "Pieces";
+  const normalized = unit.charAt(0).toUpperCase() + unit.slice(1).toLowerCase();
+  return validateQuantityUnit(normalized) ? normalized : "Pieces";
 }
 
 function normalizeGstFields(items, gstNumber) {
@@ -81,6 +96,12 @@ router.post("/", async (req, res) => {
         .status(400)
         .json({ error: "Missing customer_name or items[]" });
     }
+    // Validate quantity_unit for each item
+    for (const it of body.items) {
+      if (it.quantity_unit !== undefined && it.quantity_unit !== null && it.quantity_unit !== '' && !validateQuantityUnit(it.quantity_unit)) {
+        return res.status(400).json({ error: `Invalid quantity unit: ${it.quantity_unit}. Allowed units: ${QUANTITY_UNITS.join(', ')}` });
+      }
+    }
     const invoiceDate = body.invoice_date || dayjs().format("YYYY-MM-DD");
     const invoiceNumber =
       body.invoice_number && typeof body.invoice_number === "string"
@@ -117,8 +138,8 @@ router.post("/", async (req, res) => {
     // Insert items
     const insertItem = db.prepare(`
       INSERT INTO invoice_items
-      (invoice_id, product_name, description, quantity, unit_price, cgst_rate, sgst_rate, igst_rate, line_total)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (invoice_id, product_name, description, quantity, quantity_unit, unit_price, cgst_rate, sgst_rate, igst_rate, line_total)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     db.transaction((items) => {
       for (const it of items) {
@@ -127,6 +148,7 @@ router.post("/", async (req, res) => {
           it.product_name,
           it.description || "",
           it.quantity,
+          normalizeQuantityUnit(it.quantity_unit),
           it.unit_price,
           Number(it.cgst_rate) || 0,
           Number(it.sgst_rate) || 0,
@@ -260,6 +282,12 @@ router.put("/:id", async (req, res) => {
     const { invoice_date, customer_name, customer_address, customer_gst, items, challan_no } =
     req.body;
   try {
+    // Validate quantity_unit for each item
+    for (const it of items) {
+      if (it.quantity_unit !== undefined && it.quantity_unit !== null && it.quantity_unit !== '' && !validateQuantityUnit(it.quantity_unit)) {
+        return res.status(400).json({ error: `Invalid quantity unit: ${it.quantity_unit}. Allowed units: ${QUANTITY_UNITS.join(', ')}` });
+      }
+    }
     const normalizedItems = normalizeGstFields(items, customer_gst);
     const calc = calculateTotals(normalizedItems);
     db.prepare(
@@ -282,8 +310,8 @@ router.put("/:id", async (req, res) => {
     // Insert updated items
     const insertItem = db.prepare(`
       INSERT INTO invoice_items
-      (invoice_id, product_name, description, quantity, unit_price, cgst_rate, sgst_rate, igst_rate, line_total)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (invoice_id, product_name, description, quantity, quantity_unit, unit_price, cgst_rate, sgst_rate, igst_rate, line_total)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     db.transaction((itemsArr) => {
       for (const it of itemsArr) {
@@ -292,6 +320,7 @@ router.put("/:id", async (req, res) => {
           it.product_name,
           it.description || "",
           it.quantity,
+          normalizeQuantityUnit(it.quantity_unit),
           it.unit_price,
           Number(it.cgst_rate) || 0,
           Number(it.sgst_rate) || 0,

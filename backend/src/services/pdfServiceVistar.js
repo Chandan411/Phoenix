@@ -14,7 +14,11 @@ const money = (v) => Math.round((number(v) + Number.EPSILON) * 100) / 100;
 const safeName = (v) => (text(v || 'customer').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'customer');
 const inr = (v) => Number.isFinite(Number(v)) ? '₹' + new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v)) : '-';
 const value = (v) => Number.isFinite(Number(v)) ? new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v)) : '-';
-const qty = (v) => Number.isFinite(Number(v)) ? new Intl.NumberFormat('en-IN', { maximumFractionDigits: 3 }).format(Number(v)) : '-';
+const qty = (v, unit) => {
+  const q = Number.isFinite(Number(v)) ? new Intl.NumberFormat('en-IN', { maximumFractionDigits: 3 }).format(Number(v)) : '-';
+  const u = unit ? ' ' + unit : '';
+  return q + u;
+};
 const rate = (v) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(number(v)) + '%';
 
 function gstState(gstin) { const match = text(gstin).match(/^(\d{2})/); return match ? match[1] : null; }
@@ -90,7 +94,7 @@ function drawHeader(doc, x, y, columns, widths) {
 function cell(key, item, index) {
   if (item._continuation && key !== 'description') return '';
   const description = item._descriptionText === undefined ? [item.product_name, item.description].filter(Boolean).join(item.product_name && item.description ? '\n' : '') : item._descriptionText;
-  return text({ sno: index + 1, description, hsn: item.hsn_sac, qty: qty(item.quantity), unitPrice: value(item.unit_price), cgstRate: rate(item.cgst_rate), cgstAmount: value(item.cgstAmount), sgstRate: rate(item.sgst_rate), sgstAmount: value(item.sgstAmount), igstRate: rate(item.igst_rate), igstAmount: value(item.igstAmount), amount: value(item.lineAmount) }[key]);
+  return text({ sno: index + 1, description, hsn: item.hsn_sac, qty: qty(item.quantity, item.quantity_unit), unitPrice: value(item.unit_price), cgstRate: rate(item.cgst_rate), cgstAmount: value(item.cgstAmount), sgstRate: rate(item.sgst_rate), sgstAmount: value(item.sgstAmount), igstRate: rate(item.igst_rate), igstAmount: value(item.igstAmount), amount: value(item.lineAmount) }[key]);
 }
 function rowHeight(doc, item, index, columns, widths) { return Math.max(...columns.map((column, i) => h(doc, cell(column.key, item, index), widths[i] - PAD * 2, STYLE.table))) + PAD * 2; }
 function drawRow(doc, x, y, height, item, index, columns, widths) {

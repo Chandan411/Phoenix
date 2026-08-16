@@ -82,4 +82,15 @@ try {
 } catch (e) {
   // ignore any errors while migrating schema
 }
+
+// Ensure invoice_items table has `quantity_unit` column for existing DBs
+try {
+  const itemInfo = db.prepare("PRAGMA table_info(invoice_items)").all();
+  const hasQuantityUnit = (itemInfo || []).some(r => r && r.name === 'quantity_unit');
+  if (!hasQuantityUnit) {
+    db.exec("ALTER TABLE invoice_items ADD COLUMN quantity_unit TEXT DEFAULT 'Pieces';");
+  }
+} catch (e) {
+  // ignore any errors while migrating schema
+}
 module.exports = db;
