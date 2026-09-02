@@ -93,4 +93,24 @@ try {
 } catch (e) {
   // ignore any errors while migrating schema
 }
+
+// Migrate invoice_seq table from fy_start_year to ym format
+try {
+  const seqInfo = db.prepare("PRAGMA table_info(invoice_seq)").all();
+  const hasFyStartYear = (seqInfo || []).some(r => r && r.name === 'fy_start_year');
+  const hasYm = (seqInfo || []).some(r => r && r.name === 'ym');
+  
+  if (hasFyStartYear && !hasYm) {
+    // Old schema exists, need to migrate
+    db.exec("ALTER TABLE invoice_seq RENAME TO invoice_seq_old;");
+    db.exec("CREATE TABLE invoice_seq (ym TEXT PRIMARY KEY, last_seq INTEGER);");
+    // Note: Old sequences are not migrated since format changed from FY to YM
+    db.exec("DROP TABLE invoice_seq_old;");
+  } else if (!hasYm && !hasFyStartYear) {
+    // Table doesn't exist, create new
+    db.exec("CREATE TABLE invoice_seq (ym TEXT PRIMARY KEY, last_seq INTEGER);");
+  }
+} catch (e) {
+  // ignore any errors while migrating schema
+}
 module.exports = db;

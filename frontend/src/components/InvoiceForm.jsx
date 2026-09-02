@@ -104,7 +104,12 @@ export default function InvoiceForm({ invoice, onDone }) {
   function updateItem(i, field, value) {
     const copy = [...items];
     if (["cgst_rate", "sgst_rate", "igst_rate", "quantity", "unit_price"].includes(field)) {
-      copy[i][field] = Number(value) || 0;
+      let numVal = Number(value) || 0;
+      // Limit monetary fields to 2 decimal places
+      if (["unit_price"].includes(field)) {
+        numVal = Math.round(numVal * 100) / 100;
+      }
+      copy[i][field] = numVal;
     } else {
       copy[i][field] = value;
     }
@@ -212,12 +217,16 @@ export default function InvoiceForm({ invoice, onDone }) {
     if (!validateFields()) return;
     setLoading(true);
     try {
+      const t = totals();
       const payload = {
         invoice_date: invoiceDate,
         customer_name: customerName,
         customer_address: customerAddress,
         customer_gst: customerGst,
         challan_no: challanNo || undefined,
+        round_off: t.roundOff,
+        subtotal: t.subtotal,
+        total_gst: t.totalGst,
         items: items.map(it => {
           if (gstType === 'CGST_SGST') {
             return {
@@ -435,12 +444,21 @@ export default function InvoiceForm({ invoice, onDone }) {
                                 updateItem(idx, 'unit_price', e.target.value);
                                 setFieldErrors(errors => ({ ...errors, [`item_unit_price_${idx}`]: undefined }));
                               }}
+                              onBlur={e => {
+                                // Format to 2 decimal places on blur
+                                const val = Number(e.target.value) || 0;
+                                const formatted = Math.round(val * 100) / 100;
+                                if (formatted !== val) {
+                                  updateItem(idx, 'unit_price', formatted);
+                                }
+                              }}
                               error={!!fieldErrors[`item_unit_price_${idx}`]}
                               helperText={fieldErrors[`item_unit_price_${idx}`]}
                               size="small"
                               fullWidth
                               variant="outlined"
                               placeholder="Unit Price"
+                              inputProps={{ step: '0.01', min: '0' }}
                             />
                           </TableCell>
                           {gstType === 'CGST_SGST' ? (

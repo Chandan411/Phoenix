@@ -9,37 +9,29 @@ const {
 } = require("../services/pdfServiceVistar");
 const dayjs = require("dayjs");
 
+// Money rounding helper (matches pdfServiceVistar.js)
+const money = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+
 // Allowed quantity units
 const QUANTITY_UNITS = ["Pieces", "Packet", "Kg"];
 
-// Get financial year start year for a given date (Indian FY: Apr 1 - Mar 31)
-function getFinancialYearStartYear(dateStr) {
-  const date = dayjs(dateStr);
-  const month = date.month(); // 0-indexed
-  const year = date.year();
-  return month >= 3 ? year : year - 1; // April (3) onwards = current year, else previous year
-}
-
-// Format financial year as "2025-26"
-function formatFinancialYear(fyStartYear) {
-  return `${fyStartYear}-${String(fyStartYear + 1).slice(-2)}`;
-}
-
-// Generate next invoice number for a given financial year
+// Generate next invoice number with YYYY-MM format (resets monthly)
 function nextInvoiceNumber(invoiceDate) {
-  const fyStartYear = getFinancialYearStartYear(invoiceDate);
-  const fy = formatFinancialYear(fyStartYear);
+  const date = dayjs(invoiceDate);
+  const year = date.year();
+  const month = String(date.month() + 1).padStart(2, "0"); // 1-indexed month
+  const ym = `${year}-${month}`;
 
   const txn = db.transaction(() => {
     const row = db
-      .prepare("SELECT last_seq FROM invoice_seq WHERE fy_start_year = ?")
-      .get(fyStartYear);
+      .prepare("SELECT last_seq FROM invoice_seq WHERE ym = ?")
+      .get(ym);
     const next = (row && row.last_seq ? row.last_seq : 0) + 1;
-    db.prepare("INSERT OR REPLACE INTO invoice_seq (fy_start_year, last_seq) VALUES (?, ?)").run(fyStartYear, next);
+    db.prepare("INSERT OR REPLACE INTO invoice_seq (ym, last_seq) VALUES (?, ?)").run(ym, next);
     return next;
   });
   const seq = txn();
-  return `INV-${fy}-${String(seq).padStart(4, "0")}`;
+  return `INV-${ym}-${String(seq).padStart(4, "0")}`;
 }
 
 // Validate quantity unit
@@ -108,7 +100,12 @@ router.post("/", async (req, res) => {
         ? body.invoice_number
         : nextInvoiceNumber(invoiceDate);
     const normalizedItems = normalizeGstFields(body.items, body.customer_gst);
-    const calc = calculateTotals(normalizedItems);
+    const roundOff = Number(body.round_off) || 0;
+    const calc = calculateTotals(normalizedItems, undefined, roundOff);
+    // Use frontend's subtotal/total_gst if provided (for precision matching), else use calculated
+    const subtotal = Number(body.subtotal) || calc.subtotal;
+    const totalGst = Number(body.total_gst) || calc.totalGst;
+    const total = money(subtotal + totalGst + roundOff);
     const createdAt = dayjs().toISOString();
 
     // Insert invoice
@@ -127,15 +124,15 @@ router.post("/", async (req, res) => {
         body.customer_address || "",
         body.challan_no || null,
         body.customer_gst || "",
-        calc.subtotal,
-        calc.totalGst,
-        calc.total,
+        subtotal,
+        totalGst,
+        total,
         null,
         createdAt
       );
     const invoiceId = result.lastInsertRowid;
 
-    // Insert items
+    // Insert items - use calc.items which has proper lineAmount
     const insertItem = db.prepare(`
       INSERT INTO invoice_items
       (invoice_id, product_name, description, quantity, quantity_unit, unit_price, cgst_rate, sgst_rate, igst_rate, line_total)
@@ -153,10 +150,10 @@ router.post("/", async (req, res) => {
           Number(it.cgst_rate) || 0,
           Number(it.sgst_rate) || 0,
           Number(it.igst_rate) || 0,
-          it.line_total
+          it.lineAmount
         );
       }
-    })(normalizedItems);
+    })(calc.items);
 
     // Upsert product HSN/SAC for each item
     const upsertProduct = db.prepare(`
@@ -178,10 +175,12 @@ router.post("/", async (req, res) => {
       customer_address: body.customer_address || "",
       challan_no: body.challan_no || undefined,
       customer_gst: body.customer_gst || "",
-      items: normalizedItems, // <-- use enriched items with correct GST rates
-      subtotal: calc.subtotal,
-      total_gst: calc.totalGst,
-      total: calc.total,
+      items: calc.items, // <-- use enriched items with correct GST rates and lineAmount
+      subtotal,
+      total_gst: totalGst,
+      total,
+      round_off: roundOff,
+      gst_type: calc.gstType, // pass gstType for PDF
     };
     const pdfPath = await generateAndSavePDF(invoiceForPdf, {
       name: "VISTAR ENTERPRISE",
@@ -279,8 +278,7 @@ router.get("/:id", (req, res) => {
 // Edit invoice
 router.put("/:id", async (req, res) => {
   const id = Number(req.params.id);
-    const { invoice_date, customer_name, customer_address, customer_gst, items, challan_no } =
-    req.body;
+  const { invoice_date, customer_name, customer_address, customer_gst, items, challan_no, round_off, subtotal: feSubtotal, total_gst: feTotalGst } = req.body;
   try {
     // Validate quantity_unit for each item
     for (const it of items) {
@@ -289,7 +287,12 @@ router.put("/:id", async (req, res) => {
       }
     }
     const normalizedItems = normalizeGstFields(items, customer_gst);
-    const calc = calculateTotals(normalizedItems);
+    const roundOff = Number(round_off) || 0;
+    const calc = calculateTotals(normalizedItems, undefined, roundOff);
+    // Use frontend's subtotal/total_gst if provided (for precision matching), else use calculated
+    const subtotal = Number(feSubtotal) || calc.subtotal;
+    const totalGst = Number(feTotalGst) || calc.totalGst;
+    const total = money(subtotal + totalGst + roundOff);
     db.prepare(
       `UPDATE invoices SET invoice_date=?, customer_name=?, customer_address=?, challan_no=?, customer_gst=?, subtotal=?, total_gst=?, total=? WHERE id=?`
     ).run(
@@ -298,16 +301,16 @@ router.put("/:id", async (req, res) => {
       customer_address,
       challan_no || null,
       customer_gst,
-      calc.subtotal,
-      calc.totalGst,
-      calc.total,
+      subtotal,
+      totalGst,
+      total,
       id
     );
 
     // Delete old items
     db.prepare("DELETE FROM invoice_items WHERE invoice_id=?").run(id);
 
-    // Insert updated items
+    // Insert updated items - use calc.items which has proper lineAmount
     const insertItem = db.prepare(`
       INSERT INTO invoice_items
       (invoice_id, product_name, description, quantity, quantity_unit, unit_price, cgst_rate, sgst_rate, igst_rate, line_total)
@@ -325,10 +328,10 @@ router.put("/:id", async (req, res) => {
           Number(it.cgst_rate) || 0,
           Number(it.sgst_rate) || 0,
           Number(it.igst_rate) || 0,
-          it.line_total
+          it.lineAmount
         );
       }
-    })(normalizedItems);
+    })(calc.items);
 
     // Regenerate PDF
     const updatedInvoice = db
@@ -341,10 +344,12 @@ router.put("/:id", async (req, res) => {
       customer_address,
       challan_no: challan_no || updatedInvoice.challan_no || undefined,
       customer_gst,
-      items: normalizedItems, // <-- use enriched items with correct GST rates
-      subtotal: calc.subtotal,
-      total_gst: calc.totalGst,
-      total: calc.total,
+      items: calc.items, // <-- use enriched items with correct GST rates and lineAmount
+      subtotal,
+      total_gst: totalGst,
+      total,
+      round_off: roundOff,
+      gst_type: calc.gstType, // pass gstType for PDF
     };
     const pdfPath = await generateAndSavePDF(invoiceForPdf, {
       name: "VISTAR ENTERPRISE",

@@ -13,6 +13,12 @@ const number = (v, fallback = 0) => { const n = typeof v === 'string' && !v.trim
 const money = (v) => Math.round((number(v) + Number.EPSILON) * 100) / 100;
 const safeName = (v) => (text(v || 'customer').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'customer');
 const inr = (v) => Number.isFinite(Number(v)) ? '₹' + new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v)) : '-';
+const inrSigned = (v) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '-';
+  const sign = n >= 0 ? '+' : '';
+  return sign + '₹' + new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+};
 const value = (v) => Number.isFinite(Number(v)) ? new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v)) : '-';
 const qty = (v, unit) => {
   const q = Number.isFinite(Number(v)) ? new Intl.NumberFormat('en-IN', { maximumFractionDigits: 3 }).format(Number(v)) : '-';
@@ -140,7 +146,14 @@ function amountWords(total) {
   if (remaining) parts.push(wordsBelowThousand(remaining));
   return parts.join(' ') + ' RUPEES ONLY';
 }
-function totalRows(totals) { return [['Subtotal', inr(totals.subtotal)], ...(totals.gstType === 'IGST' && totals.igstAmount ? [['IGST', inr(totals.igstAmount)]] : []), ...(totals.gstType === 'CGST_SGST' && totals.cgstAmount ? [['CGST', inr(totals.cgstAmount)], ['SGST', inr(totals.sgstAmount)]] : []), ...(totals.roundOff ? [['Round Off', inr(totals.roundOff)]] : []), ['Grand Total', inr(totals.grandTotal)]]; }
+function totalRows(totals) { 
+  const rows = [['Subtotal', inr(totals.subtotal)], ...(totals.gstType === 'IGST' && totals.igstAmount ? [['IGST', inr(totals.igstAmount)]] : []), ...(totals.gstType === 'CGST_SGST' && totals.cgstAmount ? [['CGST', inr(totals.cgstAmount)], ['SGST', inr(totals.sgstAmount)]] : [])];
+  if (totals.roundOff !== undefined && totals.roundOff !== null && totals.roundOff !== 0) {
+    rows.push(['Round Off', inrSigned(totals.roundOff)]);
+  }
+  rows.push(['Grand Total', inr(totals.grandTotal)]);
+  return rows;
+}
 function totalsHeight(doc, totals, words, wordWidth) { return Math.max(totalRows(totals).length * 17 + PAD * 2, h(doc, words, wordWidth - PAD * 2) + 28); }
 function drawTotals(doc, y, totals) {
   const p = page(doc), gap = 8, wordsWidth = Math.floor((p.width - gap) * .56), totalsWidth = p.width - gap - wordsWidth, words = amountWords(totals.grandTotal), height = totalsHeight(doc, totals, words, wordsWidth); drawBox(doc, p.x, y, wordsWidth, height); drawBox(doc, p.x + wordsWidth + gap, y, totalsWidth, height);
@@ -158,7 +171,46 @@ function drawBank(doc, y, company) {
 
 async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
   const invoice = { ...invoiceObj, items: Array.isArray(invoiceObj.items) ? invoiceObj.items.map((item) => ({ ...item })) : [] };
-  const gstType = determineGstType(invoice, companyConfig), totals = calculateTotals(invoice.items, gstType, invoice.round_off), columns = getColumns(gstType);
+  const gstType = determineGstType(invoice, companyConfig);
+  
+  // Use passed totals if provided (for precision matching frontend), else calculate
+  const hasPassedTotals = invoice.subtotal !== undefined && invoice.total_gst !== undefined && invoice.total !== undefined;
+  const totals = hasPassedTotals
+    ? {
+        gstType,
+        items: invoice.items.map((item, idx) => {
+          // Normalize items for PDF rendering
+          const quantity = number(item.quantity);
+          const unitPrice = number(item.unit_price ?? item.rate);
+          const taxableAmount = money(quantity * unitPrice);
+          let cgstRate = number(item.cgst_rate);
+          let sgstRate = number(item.sgst_rate);
+          let igstRate = number(item.igst_rate);
+          if (gstType === 'CGST_SGST') {
+            if (!cgstRate && !sgstRate && igstRate) cgstRate = sgstRate = igstRate / 2;
+            igstRate = 0;
+          } else {
+            if (!igstRate) igstRate = cgstRate + sgstRate;
+            cgstRate = sgstRate = 0;
+          }
+          const cgstAmount = money(taxableAmount * cgstRate / 100);
+          const sgstAmount = money(taxableAmount * sgstRate / 100);
+          const igstAmount = money(taxableAmount * igstRate / 100);
+          const gstAmount = money(cgstAmount + sgstAmount + igstAmount);
+          return { ...item, product_name: text(item.product_name || item.name), description: text(item.description), hsn_sac: text(item.hsn_sac || item.hsn), quantity, unit_price: unitPrice, cgst_rate: cgstRate, sgst_rate: sgstRate, igst_rate: igstRate, taxableAmount, cgstAmount, sgstAmount, igstAmount, gstAmount, lineAmount: money(taxableAmount + gstAmount) };
+        }),
+        subtotal: invoice.subtotal,
+        cgstAmount: invoice.gstType === 'IGST' ? 0 : invoice.total_gst / 2,
+        sgstAmount: invoice.gstType === 'IGST' ? 0 : invoice.total_gst / 2,
+        igstAmount: invoice.gstType === 'IGST' ? invoice.total_gst : 0,
+        totalGst: invoice.total_gst,
+        roundOff: invoice.round_off || 0,
+        grandTotal: invoice.total,
+        total: invoice.total,
+      }
+    : calculateTotals(invoice.items, gstType, invoice.round_off);
+  
+  const columns = getColumns(gstType);
   const date = text(invoice.invoice_date).slice(0, 10) || new Date().toISOString().slice(0, 10), directory = path.join(process.cwd(), 'storage', 'invoices', date, safeName(invoice.customer_name || invoice.customer));
   fs.mkdirSync(directory, { recursive: true }); const filePath = path.join(directory, safeName(invoice.invoice_number || 'invoice') + '.pdf');
   const doc = new PDFDocument({ size: PAGE.size, margins: { top: PAGE.margin, bottom: PAGE.margin, left: PAGE.margin, right: PAGE.margin }, info: { Title: 'Invoice ' + text(invoice.invoice_number) } }), stream = fs.createWriteStream(filePath); doc.registerFont('InvoiceCurrency', CURRENCY_FONT); doc.registerFont('InvoiceCurrencyBold', CURRENCY_FONT_BOLD); doc.pipe(stream);
