@@ -94,21 +94,26 @@ try {
   // ignore any errors while migrating schema
 }
 
-// Migrate invoice_seq table from fy_start_year to ym format
+// Migrate invoice_seq table to financial year format (fy)
 try {
   const seqInfo = db.prepare("PRAGMA table_info(invoice_seq)").all();
-  const hasFyStartYear = (seqInfo || []).some(r => r && r.name === 'fy_start_year');
+  const hasFy = (seqInfo || []).some(r => r && r.name === 'fy');
   const hasYm = (seqInfo || []).some(r => r && r.name === 'ym');
+  const hasFyStartYear = (seqInfo || []).some(r => r && r.name === 'fy_start_year');
   
-  if (hasFyStartYear && !hasYm) {
-    // Old schema exists, need to migrate
+  if (hasFyStartYear && !hasFy) {
+    // Old fy_start_year schema -> migrate to fy
     db.exec("ALTER TABLE invoice_seq RENAME TO invoice_seq_old;");
-    db.exec("CREATE TABLE invoice_seq (ym TEXT PRIMARY KEY, last_seq INTEGER);");
-    // Note: Old sequences are not migrated since format changed from FY to YM
+    db.exec("CREATE TABLE invoice_seq (fy TEXT PRIMARY KEY, last_seq INTEGER);");
     db.exec("DROP TABLE invoice_seq_old;");
-  } else if (!hasYm && !hasFyStartYear) {
-    // Table doesn't exist, create new
-    db.exec("CREATE TABLE invoice_seq (ym TEXT PRIMARY KEY, last_seq INTEGER);");
+  } else if (hasYm && !hasFy) {
+    // Old ym (monthly) schema -> migrate to fy
+    db.exec("ALTER TABLE invoice_seq RENAME TO invoice_seq_old;");
+    db.exec("CREATE TABLE invoice_seq (fy TEXT PRIMARY KEY, last_seq INTEGER);");
+    db.exec("DROP TABLE invoice_seq_old;");
+  } else if (!hasFy && !hasYm && !hasFyStartYear) {
+    // Table doesn't exist, create new with fy format
+    db.exec("CREATE TABLE invoice_seq (fy TEXT PRIMARY KEY, last_seq INTEGER);");
   }
 } catch (e) {
   // ignore any errors while migrating schema

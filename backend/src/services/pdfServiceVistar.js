@@ -87,8 +87,28 @@ function drawParty(doc, y, invoice) {
   const details = [['Invoice Details', ''], ['Invoice No:', text(invoice.invoice_number)], ['Date:', text(invoice.invoice_date)], ...(text(invoice.challan_no) ? [['Challan No:', text(invoice.challan_no)]] : [])];
   const panelHeight = (rows, width) => PAD * 2 + rows.reduce((sum, row, i) => sum + (i ? labelHeight(doc, row[0], row[1], width - PAD * 2) : h(doc, row[0], width - PAD * 2, STYLE.body + 1, 'Helvetica-Bold') + 3), 0);
   const height = Math.max(panelHeight(bill, left), panelHeight(details, right)); drawBox(doc, p.x, y, left, height); drawBox(doc, p.x + left + gap, y, right, height);
-  const render = (x, width, rows) => { let rowY = y + PAD; rows.forEach((row, i) => { if (!i) { doc.font('Helvetica-Bold').fontSize(STYLE.body + 1).fillColor(STYLE.accent).text(row[0], x + PAD, rowY, { width: width - PAD * 2 }); rowY += h(doc, row[0], width - PAD * 2, STYLE.body + 1, 'Helvetica-Bold') + 3; } else rowY += label(doc, x + PAD, rowY, width - PAD * 2, row[0], row[1]); }); };
-  render(p.x, left, bill); render(p.x + left + gap, right, details); return y + height + GAP;
+  
+  // Fixed label width for invoice details section to align values
+  const fixedLabelWidth = 80;
+  
+  const render = (x, width, rows, isDetails = false) => { 
+    let rowY = y + PAD; 
+    rows.forEach((row, i) => { 
+      if (!i) { 
+        doc.font('Helvetica-Bold').fontSize(STYLE.body + 1).fillColor(STYLE.accent).text(row[0], x + PAD, rowY, { width: width - PAD * 2 }); 
+        rowY += h(doc, row[0], width - PAD * 2, STYLE.body + 1, 'Helvetica-Bold') + 3; 
+      } else {
+        const labelWidth = isDetails ? fixedLabelWidth : Math.min(66, Math.max(38, doc.widthOfString(row[0]) + 4));
+        doc.font('Helvetica-Bold').fontSize(STYLE.body).fillColor(STYLE.ink).text(row[0], x + PAD, rowY, { width: labelWidth });
+        doc.font('Helvetica').fontSize(STYLE.body).fillColor(STYLE.ink).text(text(row[1]), x + PAD + labelWidth, rowY, { width: width - PAD * 2 - labelWidth, lineGap: 1 });
+        rowY += labelHeight(doc, row[0], row[1], width - PAD * 2);
+      }
+    }); 
+  };
+  
+  render(p.x, left, bill); 
+  render(p.x + left + gap, right, details, true); 
+  return y + height + GAP;
 }
 
 function headerHeight(doc, columns, widths) { return Math.max(...columns.map((c, i) => h(doc, c.label, widths[i] - PAD * 2, STYLE.table, 'Helvetica-Bold'))) + PAD * 2; }

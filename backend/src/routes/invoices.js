@@ -15,23 +15,31 @@ const money = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 // Allowed quantity units
 const QUANTITY_UNITS = ["Pieces", "Packet", "Kg"];
 
-// Generate next invoice number with YYYY-MM format (resets monthly)
+// Generate next invoice number with Financial Year format (resets annually on Apr 1)
+// Format: INV-YYYY-MM-XXXX (MM = invoice month, XXXX = sequence within financial year)
 function nextInvoiceNumber(invoiceDate) {
   const date = dayjs(invoiceDate);
+  const month = date.month(); // 0-indexed (0=Jan, 3=Apr)
   const year = date.year();
-  const month = String(date.month() + 1).padStart(2, "0"); // 1-indexed month
-  const ym = `${year}-${month}`;
+  
+  // Financial year starts in April (month 3)
+  const fyStartYear = month >= 3 ? year : year - 1;
+  const fyEndYear = fyStartYear + 1;
+  const fy = `${fyStartYear}-${fyEndYear}`;
+  
+  // Invoice month for display (1-indexed, padded)
+  const invoiceMonth = String(date.month() + 1).padStart(2, '0');
 
   const txn = db.transaction(() => {
     const row = db
-      .prepare("SELECT last_seq FROM invoice_seq WHERE ym = ?")
-      .get(ym);
+      .prepare("SELECT last_seq FROM invoice_seq WHERE fy = ?")
+      .get(fy);
     const next = (row && row.last_seq ? row.last_seq : 0) + 1;
-    db.prepare("INSERT OR REPLACE INTO invoice_seq (ym, last_seq) VALUES (?, ?)").run(ym, next);
+    db.prepare("INSERT OR REPLACE INTO invoice_seq (fy, last_seq) VALUES (?, ?)").run(fy, next);
     return next;
   });
   const seq = txn();
-  return `INV-${ym}-${String(seq).padStart(4, "0")}`;
+  return `INV-${fyStartYear}-${invoiceMonth}-${String(seq).padStart(4, "0")}`;
 }
 
 // Validate quantity unit
