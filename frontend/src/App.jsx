@@ -88,32 +88,6 @@ export default function App() {
           } />
         </Routes>
       </main>
-      <style>{`
-        .app-header {
-          padding: 16px;
-          background: #0b5fff;
-          color: #fff;
-        }
-        .app-title {
-          margin: 0;
-        }
-        .app-nav {
-          margin-top: 8px;
-        }
-        .app-nav-link {
-          margin-right: 16px;
-          color: #fff;
-          text-decoration: none;
-          font-weight: 500;
-          font-size: 1.08rem;
-        }
-        .app-nav-link:last-child {
-          margin-right: 0;
-        }
-        .app-main {
-          padding: 16px;
-        }
-      `}</style>
     </>
   );
 }

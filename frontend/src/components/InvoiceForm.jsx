@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box, Paper, Typography, TextField, Button, MenuItem, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, IconButton, Stack, Autocomplete
+  TableContainer, TableHead, TableRow, IconButton, Stack, Autocomplete, Grid
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
@@ -32,6 +32,7 @@ export default function InvoiceForm({ invoice, onDone }) {
   const [customerGst, setCustomerGst] = useState('');
   const [challanNo, setChallanNo] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [invoiceNumber, setInvoiceNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
   const [gstOptions, setGstOptions] = useState([]);
@@ -52,6 +53,7 @@ export default function InvoiceForm({ invoice, onDone }) {
   useEffect(() => {
     if (invoice) {
       setInvoiceDate(invoice.invoice_date || new Date().toISOString().slice(0, 10));
+      setInvoiceNumber(invoice.invoice_number || '');
       setCustomerName(invoice.customer_name || '');
       setCustomerAddress(invoice.customer_address || '');
       setCustomerGst(invoice.customer_gst || '');
@@ -92,6 +94,7 @@ export default function InvoiceForm({ invoice, onDone }) {
       const mm = String(today.getMonth() + 1).padStart(2, '0');
       const dd = String(today.getDate()).padStart(2, '0');
       setInvoiceDate(`${yyyy}-${mm}-${dd}`);
+      setInvoiceNumber('');
       setCustomerName('');
       setCustomerAddress('');
       setCustomerGst('');
@@ -227,6 +230,7 @@ export default function InvoiceForm({ invoice, onDone }) {
         round_off: t.roundOff,
         subtotal: t.subtotal,
         total_gst: t.totalGst,
+        invoice_number: invoiceNumber || undefined,
         items: items.map(it => {
           if (gstType === 'CGST_SGST') {
             return {
@@ -279,14 +283,30 @@ export default function InvoiceForm({ invoice, onDone }) {
         </Typography>
         <Box component="form" onSubmit={handleSubmit} noValidate autoComplete="off">
           <Stack spacing={3}>
-            <TextField
-              label="Invoice Date"
-              type="date"
-              value={invoiceDate}
-              onChange={e => setInvoiceDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ maxWidth: 220 }}
-            />
+            <Grid container spacing={2} sx={{ flexWrap: 'wrap' }}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Invoice Date"
+                  type="date"
+                  value={invoiceDate}
+                  onChange={e => setInvoiceDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Invoice Number (Optional)"
+                  value={invoiceNumber}
+                  onChange={e => setInvoiceNumber(e.target.value.toUpperCase())}
+                  fullWidth
+                  placeholder="Auto-generated if left empty"
+                  inputProps={{ maxLength: 30, style: { textTransform: 'uppercase' } }}
+                  helperText="Leave empty for auto-generation (INV-YYYY-MM-XXXX)"
+                />
+              </Grid>
+            </Grid>
             <Paper variant="outlined" sx={{ p: 2, background: "#f5faff" }}>
               <Typography variant="subtitle1" color="primary" fontWeight={600} mb={2}>
                 Party Details

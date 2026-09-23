@@ -103,10 +103,25 @@ router.post("/", async (req, res) => {
       }
     }
     const invoiceDate = body.invoice_date || dayjs().format("YYYY-MM-DD");
-    const invoiceNumber =
-      body.invoice_number && typeof body.invoice_number === "string"
-        ? body.invoice_number
-        : nextInvoiceNumber(invoiceDate);
+    let invoiceNumber = body.invoice_number && typeof body.invoice_number === "string"
+      ? body.invoice_number.trim().toUpperCase()
+      : null;
+
+    // If manual invoice number provided, validate it
+    if (invoiceNumber) {
+      // Validate format (alphanumeric, hyphens, underscores)
+      if (!/^[A-Z0-9\-_]+$/.test(invoiceNumber)) {
+        return res.status(400).json({ error: "Invoice number can only contain letters, numbers, hyphens, and underscores" });
+      }
+      // Check uniqueness
+      const existing = db.prepare("SELECT id FROM invoices WHERE invoice_number = ?").get(invoiceNumber);
+      if (existing) {
+        return res.status(400).json({ error: `Invoice number "${invoiceNumber}" already exists` });
+      }
+    } else {
+      // Auto-generate if not provided
+      invoiceNumber = nextInvoiceNumber(invoiceDate);
+    }
     const normalizedItems = normalizeGstFields(body.items, body.customer_gst);
     const roundOff = Number(body.round_off) || 0;
     const calc = calculateTotals(normalizedItems, undefined, roundOff);
@@ -286,7 +301,7 @@ router.get("/:id", (req, res) => {
 // Edit invoice
 router.put("/:id", async (req, res) => {
   const id = Number(req.params.id);
-  const { invoice_date, customer_name, customer_address, customer_gst, items, challan_no, round_off, subtotal: feSubtotal, total_gst: feTotalGst } = req.body;
+  const { invoice_date, customer_name, customer_address, customer_gst, items, challan_no, round_off, subtotal: feSubtotal, total_gst: feTotalGst, invoice_number } = req.body;
   try {
     // Validate quantity_unit for each item
     for (const it of items) {
@@ -294,6 +309,22 @@ router.put("/:id", async (req, res) => {
         return res.status(400).json({ error: `Invalid quantity unit: ${it.quantity_unit}. Allowed units: ${QUANTITY_UNITS.join(', ')}` });
       }
     }
+
+    // Handle invoice_number if provided
+    let finalInvoiceNumber = null;
+    if (invoice_number && typeof invoice_number === "string") {
+      const trimmed = invoice_number.trim().toUpperCase();
+      if (!/^[A-Z0-9\-_]+$/.test(trimmed)) {
+        return res.status(400).json({ error: "Invoice number can only contain letters, numbers, hyphens, and underscores" });
+      }
+      // Check uniqueness (excluding current invoice)
+      const existing = db.prepare("SELECT id FROM invoices WHERE invoice_number = ? AND id != ?").get(trimmed, id);
+      if (existing) {
+        return res.status(400).json({ error: `Invoice number "${trimmed}" already exists` });
+      }
+      finalInvoiceNumber = trimmed;
+    }
+
     const normalizedItems = normalizeGstFields(items, customer_gst);
     const roundOff = Number(round_off) || 0;
     const calc = calculateTotals(normalizedItems, undefined, roundOff);
@@ -301,19 +332,19 @@ router.put("/:id", async (req, res) => {
     const subtotal = Number(feSubtotal) || calc.subtotal;
     const totalGst = Number(feTotalGst) || calc.totalGst;
     const total = money(subtotal + totalGst + roundOff);
-    db.prepare(
-      `UPDATE invoices SET invoice_date=?, customer_name=?, customer_address=?, challan_no=?, customer_gst=?, subtotal=?, total_gst=?, total=? WHERE id=?`
-    ).run(
-      invoice_date,
-      customer_name,
-      customer_address,
-      challan_no || null,
-      customer_gst,
-      subtotal,
-      totalGst,
-      total,
-      id
-    );
+    
+    // Build update query dynamically
+    let updateQuery = `UPDATE invoices SET invoice_date=?, customer_name=?, customer_address=?, challan_no=?, customer_gst=?, subtotal=?, total_gst=?, total=?`;
+    let params = [invoice_date, customer_name, customer_address, challan_no || null, customer_gst, subtotal, totalGst, total];
+    
+    if (finalInvoiceNumber) {
+      updateQuery += `, invoice_number=?`;
+      params.push(finalInvoiceNumber);
+    }
+    updateQuery += ` WHERE id=?`;
+    params.push(id);
+    
+    db.prepare(updateQuery).run(...params);
 
     // Delete old items
     db.prepare("DELETE FROM invoice_items WHERE invoice_id=?").run(id);
