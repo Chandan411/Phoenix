@@ -2,7 +2,6 @@ import React from 'react';
 
 export default function CurrencyFormat({
   value,
-  currency = 'INR',
   minimumFractionDigits = 2,
   maximumFractionDigits = 2,
   symbol = '₹',
