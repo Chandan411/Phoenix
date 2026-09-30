@@ -7,6 +7,23 @@ const DATABASE_URL = process.env.DATABASE_URL;
 
 let db;
 
+const ensureDbDirectory = () => {
+  if (DATABASE_TYPE === 'sqlite') {
+    const dbPath = path.join(__dirname, '..', '..', 'billing.db');
+    const dbDir = path.dirname(dbPath);
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
+    }
+  } else {
+    const dbDir = path.dirname(DATABASE_URL);
+    if (dbDir && !fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
+    }
+  }
+};
+
+ensureDbDirectory();
+
 if (DATABASE_TYPE === 'libsql') {
   // Turso/libSQL mode
   if (!DATABASE_URL) {
