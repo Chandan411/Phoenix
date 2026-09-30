@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const { Pool } = require('pg');
 const path = require('path');
+const fs = require('fs');
 
 const DATABASE_TYPE = process.env.DATABASE_TYPE || 'sqlite';
 const DATABASE_URL = process.env.DATABASE_URL;
