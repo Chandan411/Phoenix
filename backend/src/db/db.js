@@ -2,6 +2,7 @@ const Database = require('better-sqlite3');
 const { Pool } = require('pg');
 const path = require('path');
 const fs = require('fs');
+const bcrypt = require('bcrypt');
 
 const DATABASE_TYPE = process.env.DATABASE_TYPE || 'sqlite';
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -215,6 +216,21 @@ CREATE TABLE IF NOT EXISTS users (
     }
   } catch (e) {
     // ignore any errors while migrating schema
+  }
+
+  // Insert default users for local development
+  try {
+    const defaultUsers = [
+      { email: 'phoenixenterprises42@gmail.com', password: '9326874362' },
+      { email: 'chandan.gupta3333@gmail.com', password: '8268786060' }
+    ];
+    const insertStmt = db.prepare('INSERT OR IGNORE INTO users (email, password) VALUES (?, ?)');
+    defaultUsers.forEach(async user => {
+      const hash = await bcrypt.hash(user.password, 10);
+      insertStmt.run(user.email, hash);
+    });
+  } catch (e) {
+    // ignore any errors while seeding default users
   }
 }
 
