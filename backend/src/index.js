@@ -10,6 +10,7 @@ const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
   process.env.FRONTEND_URL,
+  'https://phoenix-cy09.onrender.com',
   ...(process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean)
 ].filter(Boolean);
 
