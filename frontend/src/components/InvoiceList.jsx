@@ -1,34 +1,38 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { toast } from 'react-toastify';
+import {
+  Box, Button, Collapse, Grid, IconButton, InputAdornment, MenuItem, Paper, Skeleton, Stack,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip,
+  Typography, useMediaQuery,
+} from '@mui/material';
+import { useTheme } from '@mui/material/styles';
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
+import TuneIcon from '@mui/icons-material/Tune';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
+import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import { listInvoices, openInvoicePdf, getInvoice } from '../api';
 import CurrencyFormat from '../utils/CurrencyFormat.jsx';
-import EditIcon from '@mui/icons-material/EditOutlined';
-
-const filterBase = {
-  borderRadius: '14px',
-  border: '2px solid #2563eb',
-  background: '#f8fbff',
-  color: '#222B45',
-  boxShadow: '0 2px 8px rgba(33,150,243,0.08)',
-  outline: 'none',
-};
+import InvoiceCard from './InvoiceCard.jsx';
 
 export default function InvoiceList({ onEdit, refresh }) {
+  const theme = useTheme();
+  const isPhone = useMediaQuery(theme.breakpoints.down('md'));
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [customerFilter, setCustomerFilter] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     async function fetchInvoices() {
       setLoading(true);
       try {
-        const data = await listInvoices({});
-        setInvoices(data);
+        setInvoices(await listInvoices({}));
       } catch {
         toast.error('Could not load invoices');
       } finally {
@@ -52,6 +56,12 @@ export default function InvoiceList({ onEdit, refresh }) {
     return matchesSearch && matchesFrom && matchesTo && matchesCustomer;
   });
 
+  const activeFilterCount = [dateFrom, dateTo, customerFilter].filter(Boolean).length;
+  const hasFilters = search || activeFilterCount > 0;
+  const clearFilters = () => { setSearch(''); setDateFrom(''); setDateTo(''); setCustomerFilter(''); };
+
+  const openPdf = (inv) => openInvoicePdf(inv.id).catch(() => toast.error('Could not open PDF'));
+
   async function handleEdit(inv) {
     try {
       const fullInvoice = await getInvoice(inv.id);
@@ -63,130 +73,154 @@ export default function InvoiceList({ onEdit, refresh }) {
   }
 
   return (
-    <div style={{ maxWidth: 980, margin: '0 auto', padding: 20 }}>
-      <div className="vibrant-header">
-        <div className="vibrant-header-title">All Invoices</div>
-        <div className="vibrant-header-subtitle">Your complete billing history</div>
-      </div>
-
-      <div
-        style={{
-          marginBottom: 28,
-          display: 'flex',
-          flexWrap: 'nowrap',
-          justifyContent: 'center',
-          alignItems: 'center',
-          gap: 18,
-          maxWidth: 900,
-          marginLeft: 'auto',
-          marginRight: 'auto',
-          background: 'rgba(240,245,255,0.7)',
-          borderRadius: 18,
-          boxShadow: '0 2px 8px rgba(33,150,243,0.08)',
-          padding: '18px 16px',
-          overflowX: 'auto',
-        }}
-      >
-        <input
-          type="text"
-          placeholder="🔍 Search invoices..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{
-            ...filterBase,
-            padding: '12px 22px',
-            borderRadius: '18px',
-            fontSize: '1.15rem',
-            width: '100%',
-            maxWidth: 340,
-            background: 'linear-gradient(90deg, #f8fbff 60%, #eaf3fa 100%)',
-            boxShadow: '0 4px 16px rgba(33,150,243,0.10)',
-            flex: '0 0 300px',
-          }}
-        />
-        <select
-          value={customerFilter}
-          onChange={(e) => setCustomerFilter(e.target.value)}
-          style={{ ...filterBase, padding: '12px 16px', fontSize: '1.08rem', width: '100%', maxWidth: 180, flex: '0 0 140px' }}
+    <Box>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+        <Box>
+          <Typography variant="h4">All Invoices</Typography>
+          <Typography color="text.secondary">Your complete billing history</Typography>
+        </Box>
+        <Button
+          component={RouterLink} to="/invoices/new" variant="contained" size="large"
+          sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
         >
-          <option value="">All Customers</option>
-          {uniqueCustomers.map((cust) => (
-            <option key={cust} value={cust}>{cust}</option>
-          ))}
-        </select>
-        <input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          title="From date"
-          style={{ ...filterBase, padding: '12px 16px', fontSize: '1.08rem', width: '100%', maxWidth: 140, flex: '0 0 120px' }}
-        />
-        <input
-          type="date"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          title="To date"
-          style={{ ...filterBase, padding: '12px 16px', fontSize: '1.08rem', width: '100%', maxWidth: 140, flex: '0 0 120px' }}
-        />
-      </div>
+          + New Invoice
+        </Button>
+      </Box>
+
+      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+          <TextField
+            fullWidth size="small" placeholder="Search invoice no, customer or total"
+            value={search} onChange={(e) => setSearch(e.target.value)}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start"><SearchOutlinedIcon fontSize="small" /></InputAdornment>
+                ),
+              },
+            }}
+            sx={{ maxWidth: { md: 360 } }}
+          />
+          {isPhone && (
+            <Button
+              variant={activeFilterCount ? 'contained' : 'outlined'}
+              color={activeFilterCount ? 'primary' : 'inherit'}
+              onClick={() => setShowFilters((s) => !s)}
+              startIcon={<TuneIcon />}
+              sx={{ flexShrink: 0 }}
+            >
+              Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}
+            </Button>
+          )}
+          {!isPhone && (
+            <Button size="small" disabled={!hasFilters} onClick={clearFilters} sx={{ ml: 'auto' }}>
+              Clear
+            </Button>
+          )}
+        </Box>
+
+        <Collapse in={!isPhone || showFilters} unmountOnExit={false}>
+          <Grid container spacing={1.5} sx={{ mt: 1.5 }}>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+              <TextField
+                select fullWidth size="small" label="Customer"
+                value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
+              >
+                <MenuItem value="">All customers</MenuItem>
+                {uniqueCustomers.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+              </TextField>
+            </Grid>
+            <Grid size={{ xs: 6, sm: 3, md: 4 }}>
+              <TextField
+                type="date" fullWidth size="small" label="From"
+                value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+                slotProps={{ inputLabel: { shrink: true } }}
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 3, md: 4 }}>
+              <TextField
+                type="date" fullWidth size="small" label="To"
+                value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+                slotProps={{ inputLabel: { shrink: true } }}
+              />
+            </Grid>
+            {isPhone && (
+              <Grid size={12}>
+                <Button fullWidth size="small" disabled={!hasFilters} onClick={clearFilters}>
+                  Clear all filters
+                </Button>
+              </Grid>
+            )}
+          </Grid>
+        </Collapse>
+      </Paper>
 
       {loading ? (
-        <>
-          <div className="skeleton" style={{ width: 200, height: 32, marginBottom: 16 }} />
-          <div className="skeleton" style={{ width: '100%', height: 40, marginBottom: 8 }} />
-        </>
+        <Paper variant="outlined" sx={{ p: 2.5 }}>
+          {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} height={48} />)}
+        </Paper>
       ) : filteredInvoices.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '32px 0', color: '#888', fontSize: '1.1rem' }}>
-          No invoices to display
-        </div>
+        <Paper variant="outlined" sx={{ textAlign: 'center', py: 8, color: 'text.secondary' }}>
+          <ReceiptLongOutlinedIcon sx={{ fontSize: 44, opacity: 0.4 }} />
+          <Typography>{invoices.length === 0 ? 'No invoices to display' : 'No invoices match your filters'}</Typography>
+        </Paper>
+      ) : isPhone ? (
+        <Stack spacing={1.5}>
+          {filteredInvoices.map((inv) => (
+            <InvoiceCard key={inv.id} inv={inv} onPdf={openPdf} onEdit={handleEdit} />
+          ))}
+          <Typography variant="body2" color="text.secondary" align="center" sx={{ pt: 1 }}>
+            Showing {filteredInvoices.length} of {invoices.length} invoices
+          </Typography>
+        </Stack>
       ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th>Invoice No</th>
-              <th>Date</th>
-              <th>Customer</th>
-              <th>Total</th>
-              <th>PDF</th>
-              <th>Edit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredInvoices.map((inv) => (
-              <tr key={inv.id}>
-                <td>{inv.invoice_number}</td>
-                <td>{inv.invoice_date}</td>
-                <td>{inv.customer_name}</td>
-                <td>
-                  <CurrencyFormat value={inv.total} />
-                </td>
-                <td style={{ textAlign: 'center' }}>
-                  <button
-                    onClick={() => openInvoicePdf(inv.id).catch(() => toast.error('Could not open PDF'))}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                    title="Open PDF"
-                  >
-                    <img
-                      src="https://upload.wikimedia.org/wikipedia/commons/8/87/PDF_file_icon.svg"
-                      alt="PDF"
-                      style={{ width: 20, height: 20, verticalAlign: 'middle' }}
-                    />
-                  </button>
-                </td>
-                <td style={{ textAlign: 'center' }}>
-                  <button
-                    onClick={() => handleEdit(inv)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                    title="Edit"
-                  >
-                    <EditIcon style={{ color: '#4F8CFF', fontSize: 22 }} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Paper variant="outlined">
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Invoice No</TableCell>
+                  <TableCell>Date</TableCell>
+                  <TableCell>Customer</TableCell>
+                  <TableCell align="right">Total</TableCell>
+                  <TableCell align="center">PDF</TableCell>
+                  <TableCell align="center">Edit</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filteredInvoices.map((inv) => (
+                  <TableRow key={inv.id} hover>
+                    <TableCell sx={{ fontWeight: 600 }}>{inv.invoice_number}</TableCell>
+                    <TableCell>{inv.invoice_date}</TableCell>
+                    <TableCell>{inv.customer_name}</TableCell>
+                    <TableCell align="right"><CurrencyFormat value={inv.total} /></TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Open PDF">
+                        <IconButton color="error" onClick={() => openPdf(inv)}>
+                          <PictureAsPdfOutlinedIcon />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Edit">
+                        <IconButton color="primary" onClick={() => handleEdit(inv)}>
+                          <EditOutlinedIcon />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          <Box sx={{ px: 2, py: 1.5, borderTop: 1, borderColor: 'divider' }}>
+            <Typography variant="body2" color="text.secondary">
+              Showing {filteredInvoices.length} of {invoices.length} invoices
+            </Typography>
+          </Box>
+        </Paper>
       )}
-    </div>
+    </Box>
   );
 }

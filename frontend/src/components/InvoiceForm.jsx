@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Box, Paper, Typography, TextField, Button, MenuItem, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, IconButton, Stack, Autocomplete, Grid
+  Box, Paper, Typography, TextField, Button, MenuItem, IconButton, Stack, Autocomplete, Grid,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
-import RemoveIcon from '@mui/icons-material/Remove';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { createInvoice, updateInvoice, listInvoices, getPartyByGst, getProductByName } from '../api';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -13,6 +12,7 @@ import CurrencyFormat from '../utils/CurrencyFormat.jsx';
 const cgstSgstOptions = [2.5, 9, 14];
 const igstOptions = [5, 18, 28];
 const QUANTITY_UNITS = ['Pieces', 'Packet', 'Kg'];
+const NUMERIC_FIELDS = ['cgst_rate', 'sgst_rate', 'igst_rate', 'quantity', 'unit_price'];
 
 const emptyItem = () => ({
   product_name: '',
@@ -22,8 +22,22 @@ const emptyItem = () => ({
   unit_price: 0,
   cgst_rate: 0,
   sgst_rate: 0,
-  igst_rate: 0
+  igst_rate: 0,
 });
+
+const todayStr = () => {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+};
+
+function Section({ title, children }) {
+  return (
+    <Paper variant="outlined" sx={{ p: { xs: 2, md: 3 } }}>
+      <Typography variant="h6" sx={{ mb: 2 }}>{title}</Typography>
+      {children}
+    </Paper>
+  );
+}
 
 export default function InvoiceForm({ invoice, onDone }) {
   const [items, setItems] = useState([emptyItem()]);
@@ -31,7 +45,7 @@ export default function InvoiceForm({ invoice, onDone }) {
   const [customerAddress, setCustomerAddress] = useState('');
   const [customerGst, setCustomerGst] = useState('');
   const [challanNo, setChallanNo] = useState('');
-  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [invoiceDate, setInvoiceDate] = useState(todayStr());
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
@@ -39,20 +53,26 @@ export default function InvoiceForm({ invoice, onDone }) {
   const [gstType, setGstType] = useState('IGST');
   const navigate = useNavigate();
 
+  const clearError = (key) => setFieldErrors((errors) => ({ ...errors, [key]: undefined }));
+
   useEffect(() => {
     async function fetchGsts() {
-      const allInvoices = await listInvoices({});
-      const uniqueGsts = Array.from(
-        new Set(allInvoices.map(inv => (inv.customer_gst || '').trim()).filter(Boolean))
-      );
-      setGstOptions(uniqueGsts);
+      try {
+        const allInvoices = await listInvoices({});
+        const uniqueGsts = Array.from(
+          new Set(allInvoices.map((inv) => (inv.customer_gst || '').trim()).filter(Boolean))
+        );
+        setGstOptions(uniqueGsts);
+      } catch {
+        // suggestions are optional
+      }
     }
     fetchGsts();
   }, []);
 
   useEffect(() => {
     if (invoice) {
-      setInvoiceDate(invoice.invoice_date || new Date().toISOString().slice(0, 10));
+      setInvoiceDate(invoice.invoice_date || todayStr());
       setInvoiceNumber(invoice.invoice_number || '');
       setCustomerName(invoice.customer_name || '');
       setCustomerAddress(invoice.customer_address || '');
@@ -63,25 +83,24 @@ export default function InvoiceForm({ invoice, onDone }) {
       // Fetch HSN/SAC for each item if missing or empty
       const fetchHSN = async () => {
         if (invoice.items && invoice.items.length > 0) {
-          const updatedItems = await Promise.all(invoice.items.map(async it => {
-            let hsn_sac = it.hsn_sac;
-            if (!hsn_sac && it.product_name) {
-              try {
-                const product = await getProductByName(it.product_name);
-                if (product && product.hsn_sac) {
-                  hsn_sac = product.hsn_sac;
+          const updatedItems = await Promise.all(
+            invoice.items.map(async (it) => {
+              let hsn_sac = it.hsn_sac;
+              if (!hsn_sac && it.product_name) {
+                try {
+                  const product = await getProductByName(it.product_name);
+                  if (product && product.hsn_sac) hsn_sac = product.hsn_sac;
+                } catch (e) {
+                  console.error('Error fetching product for HSN/SAC:', e);
                 }
-              } catch(e){
-                console.error('Error fetching product for HSN/SAC:', e);
               }
-            }
-            const quantity_unit = it.quantity_unit || 'Pieces';
-            if (isCgstSgst) {
-              return { ...it, hsn_sac, quantity_unit, cgst_rate: Number(it.cgst_rate) || 0, sgst_rate: Number(it.sgst_rate) || 0, igst_rate: 0 };
-            } else {
+              const quantity_unit = it.quantity_unit || 'Pieces';
+              if (isCgstSgst) {
+                return { ...it, hsn_sac, quantity_unit, cgst_rate: Number(it.cgst_rate) || 0, sgst_rate: Number(it.sgst_rate) || 0, igst_rate: 0 };
+              }
               return { ...it, hsn_sac, quantity_unit, igst_rate: Number(it.igst_rate) || 0, cgst_rate: 0, sgst_rate: 0 };
-            }
-          }));
+            })
+          );
           setItems(updatedItems);
         } else {
           setItems([emptyItem()]);
@@ -89,11 +108,7 @@ export default function InvoiceForm({ invoice, onDone }) {
       };
       fetchHSN();
     } else {
-      const today = new Date();
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth() + 1).padStart(2, '0');
-      const dd = String(today.getDate()).padStart(2, '0');
-      setInvoiceDate(`${yyyy}-${mm}-${dd}`);
+      setInvoiceDate(todayStr());
       setInvoiceNumber('');
       setCustomerName('');
       setCustomerAddress('');
@@ -104,54 +119,49 @@ export default function InvoiceForm({ invoice, onDone }) {
     }
   }, [invoice]);
 
+  function patchItem(i, patch) {
+    setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
+  }
+
   function updateItem(i, field, value) {
-    const copy = [...items];
-    if (["cgst_rate", "sgst_rate", "igst_rate", "quantity", "unit_price"].includes(field)) {
+    const patch = {};
+    if (NUMERIC_FIELDS.includes(field)) {
       let numVal = Number(value) || 0;
-      // Limit monetary fields to 2 decimal places
-      if (["unit_price"].includes(field)) {
-        numVal = Math.round(numVal * 100) / 100;
-      }
-      copy[i][field] = numVal;
+      if (field === 'unit_price') numVal = Math.round(numVal * 100) / 100; // 2 decimals
+      patch[field] = numVal;
     } else {
-      copy[i][field] = value;
+      patch[field] = value;
     }
-    // If product_name is changed, fetch HSN/SAC
-    if (field === 'product_name') {
-      getProductByName(value).then(product => {
-        if (product && product.hsn_sac) {
-          copy[i].hsn_sac = product.hsn_sac;
-          setItems([...copy]);
-        }
-      }).catch(() => {
-        // If not found, clear hsn_sac
-        copy[i].hsn_sac = '';
-        setItems([...copy]);
-      });
-    } else {
-      setItems(copy);
-    }
-    // If CGST is changed, auto-set SGST to the same value
+    // In CGST/SGST mode, SGST follows CGST
     if (gstType === 'CGST_SGST' && field === 'cgst_rate') {
-      copy[i]['sgst_rate'] = Number(value) || 0;
-      setItems(copy);
+      patch.sgst_rate = Number(value) || 0;
+    }
+    patchItem(i, patch);
+
+    // If product name changes, look up its HSN/SAC
+    if (field === 'product_name' && String(value).trim()) {
+      getProductByName(value)
+        .then((product) => {
+          if (product && product.hsn_sac) patchItem(i, { hsn_sac: product.hsn_sac });
+        })
+        .catch(() => patchItem(i, { hsn_sac: '' }));
     }
   }
-  function addRow() { setItems([...items, emptyItem()]); }
-  function removeRow(i) { setItems(items.filter((_, idx) => idx !== i)); }
+
+  function addRow() { setItems((prev) => [...prev, emptyItem()]); }
+  function removeRow(i) { setItems((prev) => prev.filter((_, idx) => idx !== i)); }
+
+  const gstRateOf = (it) =>
+    gstType === 'CGST_SGST'
+      ? (Number(it.cgst_rate) || 0) + (Number(it.sgst_rate) || 0)
+      : Number(it.igst_rate) || 0;
 
   function totals() {
     let subtotal = 0, totalGst = 0;
-    items.forEach(it => {
+    items.forEach((it) => {
       const line = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
-      let gstRate = 0;
-      if (gstType === 'CGST_SGST') {
-        gstRate = (Number(it.cgst_rate) || 0) + (Number(it.sgst_rate) || 0);
-      } else {
-        gstRate = Number(it.igst_rate) || 0;
-      }
       subtotal += line;
-      totalGst += line * (gstRate / 100);
+      totalGst += line * (gstRateOf(it) / 100);
     });
     const total = subtotal + totalGst;
     const roundedTotal = Math.round(total);
@@ -163,31 +173,25 @@ export default function InvoiceForm({ invoice, onDone }) {
     const errors = {};
     const gstRegex = /^[A-Z0-9]{15}$/;
 
-    if (!String(customerName || '').trim()) errors.customerName = "Customer name is required";
+    if (!String(customerName || '').trim()) errors.customerName = 'Customer name is required';
     if (!customerGst) {
-      errors.customerGst = "Customer GST is required";
+      errors.customerGst = 'Customer GST is required';
     } else if (!gstRegex.test(String(customerGst || '').trim())) {
-      errors.customerGst = "GST must be 15 uppercase alphanumeric characters";
+      errors.customerGst = 'GST must be 15 uppercase alphanumeric characters';
     }
     items.forEach((item, idx) => {
-      if (!String(item.product_name || '').trim()) errors[`item_product_name_${idx}`] = "Product name required";
-      if (!String(item.hsn_sac || '').trim()) errors[`item_hsn_sac_${idx}`] = "HSN/SAC code is required";
-      if (!item.quantity || item.quantity <= 0) errors[`item_quantity_${idx}`] = "Quantity must be > 0";
-      if (!item.unit_price || item.unit_price < 0) errors[`item_unit_price_${idx}`] = "Unit price required";
+      if (!String(item.product_name || '').trim()) errors[`item_product_name_${idx}`] = 'Product name required';
+      if (!String(item.hsn_sac || '').trim()) errors[`item_hsn_sac_${idx}`] = 'HSN/SAC code is required';
+      if (!item.quantity || item.quantity <= 0) errors[`item_quantity_${idx}`] = 'Quantity must be > 0';
+      if (!item.unit_price || item.unit_price < 0) errors[`item_unit_price_${idx}`] = 'Unit price required';
       if (!item.quantity_unit || !QUANTITY_UNITS.includes(item.quantity_unit)) {
-        errors[`item_quantity_unit_${idx}`] = "Valid quantity unit is required";
+        errors[`item_quantity_unit_${idx}`] = 'Valid quantity unit is required';
       }
       if (gstType === 'CGST_SGST') {
-        if (item.cgst_rate === undefined || item.cgst_rate === null || item.cgst_rate === '' || Number(item.cgst_rate) === 0) {
-          errors[`item_cgst_rate_${idx}`] = "CGST rate is required";
-        }
-        if (item.sgst_rate === undefined || item.sgst_rate === null || item.sgst_rate === '' || Number(item.sgst_rate) === 0) {
-          errors[`item_sgst_rate_${idx}`] = "SGST rate is required";
-        }
-      } else {
-        if (item.igst_rate === undefined || item.igst_rate === null || item.igst_rate === '' || Number(item.igst_rate) === 0) {
-          errors[`item_igst_rate_${idx}`] = "IGST rate is required";
-        }
+        if (!Number(item.cgst_rate)) errors[`item_cgst_rate_${idx}`] = 'CGST rate is required';
+        if (!Number(item.sgst_rate)) errors[`item_sgst_rate_${idx}`] = 'SGST rate is required';
+      } else if (!Number(item.igst_rate)) {
+        errors[`item_igst_rate_${idx}`] = 'IGST rate is required';
       }
     });
     setFieldErrors(errors);
@@ -197,7 +201,7 @@ export default function InvoiceForm({ invoice, onDone }) {
   const handleGstChange = async (val) => {
     const v = String(val || '').toUpperCase();
     setCustomerGst(v);
-    setFieldErrors(errors => ({ ...errors, customerGst: undefined }));
+    clearError('customerGst');
     setGstType(v.startsWith('27') ? 'CGST_SGST' : 'IGST');
     // Auto-populate party details if GST is valid
     if (/^[A-Z0-9]{15}$/.test(v)) {
@@ -208,7 +212,7 @@ export default function InvoiceForm({ invoice, onDone }) {
           setCustomerAddress(party.address || '');
         }
       } catch {
-        // Party not found, do nothing
+        // Party not found
         setCustomerName('');
         setCustomerAddress('');
       }
@@ -217,7 +221,10 @@ export default function InvoiceForm({ invoice, onDone }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!validateFields()) return;
+    if (!validateFields()) {
+      toast.error('Please fix the highlighted fields');
+      return;
+    }
     setLoading(true);
     try {
       const t = totals();
@@ -231,23 +238,11 @@ export default function InvoiceForm({ invoice, onDone }) {
         subtotal: t.subtotal,
         total_gst: t.totalGst,
         invoice_number: invoiceNumber || undefined,
-        items: items.map(it => {
-          if (gstType === 'CGST_SGST') {
-            return {
-              ...it,
-              cgst_rate: Number(it.cgst_rate) || 0,
-              sgst_rate: Number(it.sgst_rate) || 0,
-              igst_rate: 0
-            };
-          } else {
-            return {
-              ...it,
-              igst_rate: Number(it.igst_rate) || 0,
-              cgst_rate: 0,
-              sgst_rate: 0
-            };
-          }
-        })
+        items: items.map((it) =>
+          gstType === 'CGST_SGST'
+            ? { ...it, cgst_rate: Number(it.cgst_rate) || 0, sgst_rate: Number(it.sgst_rate) || 0, igst_rate: 0 }
+            : { ...it, igst_rate: Number(it.igst_rate) || 0, cgst_rate: 0, sgst_rate: 0 }
+        ),
       };
       if (invoice && invoice.id) {
         await updateInvoice(invoice.id, payload);
@@ -256,14 +251,8 @@ export default function InvoiceForm({ invoice, onDone }) {
         await createInvoice(payload);
         toast.success('Invoice created successfully!');
       }
-      // Open generated PDF in new tab
-      try {
-        //window.open(invoicePdfUrl(result.id), '_blank');
-      } catch {
-        // ignore in non-browser environments
-      }
       if (onDone) onDone();
-      navigate('/dashboard'); // <-- Fix: redirect to dashboard after creation
+      navigate('/dashboard');
     } catch (err) {
       toast.error('Failed to create/update invoice');
       console.error('Create invoice error:', err);
@@ -274,51 +263,56 @@ export default function InvoiceForm({ invoice, onDone }) {
 
   const t = totals();
   const showBackendTotals = invoice && typeof invoice.rounded_total !== 'undefined' && typeof invoice.round_off !== 'undefined';
+  const roundOffValue = showBackendTotals ? Number(invoice.round_off) : t.roundOff;
 
   return (
-    <Box maxWidth={1800} mx="auto" mt={4}>  {/* Increased maxWidth for wider form */}
-      <Paper elevation={3} sx={{ p: 4 }}>
-        <Typography variant="h4" color="primary" gutterBottom align="center">
-          {invoice ? 'Edit Invoice' : 'Create Invoice'}
-        </Typography>
-        <Box component="form" onSubmit={handleSubmit} noValidate autoComplete="off">
-          <Stack spacing={3}>
-            <Grid container spacing={2} sx={{ flexWrap: 'wrap' }}>
-              <Grid item xs={12} sm={6}>
+    <Box>
+      <Typography variant="h4">{invoice ? 'Edit Invoice' : 'Create Invoice'}</Typography>
+      <Typography color="text.secondary" sx={{ mb: 3 }}>
+        {invoice ? 'Update the details and regenerate the PDF' : 'Fill in the details to generate a GST invoice'}
+      </Typography>
+
+      <Box component="form" onSubmit={handleSubmit} noValidate autoComplete="off">
+        <Stack spacing={2.5}>
+          {/* ---------- Invoice details ---------- */}
+          <Section title="Invoice details">
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label="Invoice Date"
                   type="date"
                   value={invoiceDate}
-                  onChange={e => setInvoiceDate(e.target.value)}
-                  InputLabelProps={{ shrink: true }}
+                  onChange={(e) => setInvoiceDate(e.target.value)}
+                  slotProps={{ inputLabel: { shrink: true } }}
                   fullWidth
                   required
                 />
               </Grid>
-              <Grid item xs={12} sm={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label="Invoice Number (Optional)"
                   value={invoiceNumber}
-                  onChange={e => setInvoiceNumber(e.target.value.toUpperCase())}
+                  onChange={(e) => setInvoiceNumber(e.target.value.toUpperCase())}
                   fullWidth
                   placeholder="Auto-generated if left empty"
-                  inputProps={{ maxLength: 30, style: { textTransform: 'uppercase' } }}
+                  slotProps={{ htmlInput: { maxLength: 30, style: { textTransform: 'uppercase' } } }}
                   helperText="Leave empty for auto-generation (INV-YYYY-MM-XXXX)"
                 />
               </Grid>
             </Grid>
-            <Paper variant="outlined" sx={{ p: 2, background: "#f5faff" }}>
-              <Typography variant="subtitle1" color="primary" fontWeight={600} mb={2}>
-                Party Details
-              </Typography>
-              <Stack spacing={2} direction="column" sx={{ width: '100%' }}>
+          </Section>
+
+          {/* ---------- Party details ---------- */}
+          <Section title="Party details">
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <Autocomplete
                   freeSolo
                   clearOnBlur={false}
                   options={gstOptions}
                   value={customerGst}
                   onInputChange={(_, val) => handleGstChange((val || '').slice(0, 15))}
-                  renderInput={params => (
+                  renderInput={(params) => (
                     <TextField
                       {...params}
                       label="GST (Type or Search)"
@@ -328,273 +322,282 @@ export default function InvoiceForm({ invoice, onDone }) {
                       inputProps={{
                         ...params.inputProps,
                         maxLength: 15,
-                        style: { textTransform: 'uppercase', overflowWrap: 'break-word' }
+                        style: { textTransform: 'uppercase', overflowWrap: 'break-word' },
                       }}
                       fullWidth
                     />
                   )}
-                  sx={{ width: '100%' }}
                 />
+              </Grid>
+              <Grid size={{ xs: 12, md: 8 }}>
                 <TextField
                   label="Customer Name"
                   value={customerName}
-                  onChange={e => {
+                  onChange={(e) => {
                     setCustomerName(e.target.value.toUpperCase());
-                    setFieldErrors(errors => ({ ...errors, customerName: undefined }));
+                    clearError('customerName');
                   }}
                   error={!!fieldErrors.customerName}
                   helperText={fieldErrors.customerName}
-                  variant="outlined"
                   fullWidth
                 />
+              </Grid>
+              <Grid size={12}>
                 <TextField
                   label="Address"
                   value={customerAddress}
-                  onChange={e => setCustomerAddress(e.target.value)}
+                  onChange={(e) => setCustomerAddress(e.target.value)}
                   multiline
-                  minRows={3}
-                  variant="outlined"
+                  minRows={2}
                   fullWidth
                 />
+              </Grid>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <TextField
                   label="Challan No (optional)"
                   value={challanNo}
-                  onChange={e => setChallanNo(e.target.value)}
-                  variant="outlined"
-                  inputProps={{ maxLength: 30, style: { overflowWrap: 'break-word' } }}
-                  helperText="Optional — will be used in generated PDF if provided"
+                  onChange={(e) => setChallanNo(e.target.value)}
+                  slotProps={{ htmlInput: { maxLength: 30 } }}
+                  helperText="Used in the PDF if provided"
                   fullWidth
                 />
-              </Stack>
-            </Paper>
-            <Box>
-              <Typography variant="h6" color="primary" mb={1}>Items</Typography>
-              <div style={{ width: '100%', overflowX: 'auto' }}>
-                <TableContainer component={Paper} variant="outlined" sx={{ minWidth: 900, borderRadius: 2, boxShadow: 0, padding: '0%' }}>
-                  <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 900 }}>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ width: 40 }}>Sr No.</TableCell>
-                        <TableCell sx={{ width: 220 }}>Product</TableCell>
-                        <TableCell sx={{ width: 120 }}>HSN/SAC</TableCell>
-                        <TableCell sx={{ width: 150 }}>Qty</TableCell>
-                        <TableCell sx={{ width: 120 }}>Unit Price</TableCell>
-                        {gstType === 'CGST_SGST' ? (
-                          <>
-                            <TableCell sx={{ width: 100 }}>CGST %</TableCell>
-                            <TableCell sx={{ width: 100 }}>SGST %</TableCell>
-                          </>
-                        ) : (
-                          <TableCell sx={{ width: 100 }}>IGST %</TableCell>
-                        )}
-                        <TableCell sx={{ width: 120 }}>Line Total</TableCell>
-                        <TableCell sx={{ width: 60 }} />
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {items.map((it, idx) => (
-                        <TableRow key={idx}>
-                          <TableCell>{idx + 1}</TableCell>
-                          <TableCell sx={{ verticalAlign: 'middle', whiteSpace: 'normal', wordBreak: 'break-word', maxWidth: 220 }}>
+              </Grid>
+            </Grid>
+          </Section>
+
+          {/* ---------- Items ---------- */}
+          <Section title="Items">
+            <Stack spacing={2}>
+              {items.map((it, idx) => {
+                const line = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
+                const lineTotal = line * (1 + gstRateOf(it) / 100);
+                return (
+                  <Paper key={idx} variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, bgcolor: 'background.default' }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                      <Typography fontWeight={700}>Item {idx + 1}</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Line total{' '}
+                          <Box component="span" sx={{ color: 'text.primary', fontWeight: 700 }}>
+                            <CurrencyFormat value={lineTotal} />
+                          </Box>
+                        </Typography>
+                        <IconButton
+                          onClick={() => removeRow(idx)}
+                          disabled={items.length === 1}
+                          color="error"
+                          size="small"
+                          aria-label={`Remove item ${idx + 1}`}
+                        >
+                          <DeleteOutlineIcon />
+                        </IconButton>
+                      </Box>
+                    </Box>
+
+                    <Grid container spacing={1.5}>
+                      <Grid size={{ xs: 12, md: 5 }}>
+                        <TextField
+                          label="Product"
+                          value={it.product_name}
+                          onChange={(e) => {
+                            updateItem(idx, 'product_name', e.target.value.toUpperCase());
+                            clearError(`item_product_name_${idx}`);
+                          }}
+                          error={!!fieldErrors[`item_product_name_${idx}`]}
+                          helperText={fieldErrors[`item_product_name_${idx}`]}
+                          size="small"
+                          fullWidth
+                          placeholder="Product Name"
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 6, md: 3 }}>
+                        <TextField
+                          label="HSN/SAC"
+                          value={it.hsn_sac || ''}
+                          onChange={(e) => {
+                            updateItem(idx, 'hsn_sac', e.target.value);
+                            clearError(`item_hsn_sac_${idx}`);
+                          }}
+                          error={!!fieldErrors[`item_hsn_sac_${idx}`]}
+                          helperText={fieldErrors[`item_hsn_sac_${idx}`]}
+                          size="small"
+                          fullWidth
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 6, md: 2 }}>
+                        <TextField
+                          label="Qty"
+                          type="number"
+                          value={it.quantity}
+                          onChange={(e) => {
+                            updateItem(idx, 'quantity', e.target.value);
+                            clearError(`item_quantity_${idx}`);
+                          }}
+                          error={!!fieldErrors[`item_quantity_${idx}`]}
+                          helperText={fieldErrors[`item_quantity_${idx}`]}
+                          size="small"
+                          fullWidth
+                          slotProps={{ htmlInput: { step: 'any', inputMode: 'decimal' } }}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 6, md: 2 }}>
+                        <TextField
+                          select
+                          label="Unit"
+                          value={it.quantity_unit || 'Pieces'}
+                          onChange={(e) => updateItem(idx, 'quantity_unit', e.target.value)}
+                          error={!!fieldErrors[`item_quantity_unit_${idx}`]}
+                          size="small"
+                          fullWidth
+                        >
+                          {QUANTITY_UNITS.map((unit) => (
+                            <MenuItem key={unit} value={unit}>{unit}</MenuItem>
+                          ))}
+                        </TextField>
+                      </Grid>
+
+                      <Grid size={{ xs: 6, md: 4 }}>
+                        <TextField
+                          label="Unit Price"
+                          type="number"
+                          value={it.unit_price}
+                          onChange={(e) => {
+                            updateItem(idx, 'unit_price', e.target.value);
+                            clearError(`item_unit_price_${idx}`);
+                          }}
+                          onBlur={(e) => {
+                            const val = Number(e.target.value) || 0;
+                            const formatted = Math.round(val * 100) / 100;
+                            if (formatted !== val) updateItem(idx, 'unit_price', formatted);
+                          }}
+                          error={!!fieldErrors[`item_unit_price_${idx}`]}
+                          helperText={fieldErrors[`item_unit_price_${idx}`]}
+                          size="small"
+                          fullWidth
+                          slotProps={{ htmlInput: { step: '0.01', min: '0', inputMode: 'decimal' } }}
+                        />
+                      </Grid>
+
+                      {gstType === 'CGST_SGST' ? (
+                        <>
+                          <Grid size={{ xs: 6, md: 4 }}>
                             <TextField
-                              value={it.product_name}
-                              onChange={e => {
-                                updateItem(idx, 'product_name', e.target.value.toUpperCase());
-                                setFieldErrors(errors => ({ ...errors, [`item_product_name_${idx}`]: undefined }));
+                              select
+                              label="CGST %"
+                              value={it.cgst_rate || ''}
+                              onChange={(e) => {
+                                updateItem(idx, 'cgst_rate', e.target.value);
+                                clearError(`item_cgst_rate_${idx}`);
                               }}
-                              error={!!fieldErrors[`item_product_name_${idx}`]}
-                              helperText={fieldErrors[`item_product_name_${idx}`]}
                               size="small"
                               fullWidth
-                              variant="outlined"
-                              placeholder="Product Name"              
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              value={it.hsn_sac || ''}
-                              onChange={e => {
-                                updateItem(idx, 'hsn_sac', e.target.value);
-                                setFieldErrors(errors => ({ ...errors, [`item_hsn_sac_${idx}`]: undefined }));
-                              }}
-                              error={!!fieldErrors[`item_hsn_sac_${idx}`]}
-                              helperText={fieldErrors[`item_hsn_sac_${idx}`]}
-                              size="small"
-                              fullWidth
-                              variant="outlined"
-                              placeholder="HSN/SAC"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
-                              <TextField
-                                type="number"
-                                value={it.quantity}
-                                onChange={e => {
-                                  updateItem(idx, 'quantity', e.target.value);
-                                  setFieldErrors(errors => ({ ...errors, [`item_quantity_${idx}`]: undefined }));
-                                }}
-                                error={!!fieldErrors[`item_quantity_${idx}`]}
-                                helperText={fieldErrors[`item_quantity_${idx}`]}
-                                size="small"
-                                variant="outlined"
-                                placeholder="Qty"
-                                sx={{ flex: 1, minWidth: 60 }}
-                                inputProps={{ step: 'any' }}
-                              />
-                              <TextField
-                                select
-                                value={it.quantity_unit || 'Pieces'}
-                                onChange={e => updateItem(idx, 'quantity_unit', e.target.value)}
-                                size="small"
-                                variant="outlined"
-                                sx={{ minWidth: 90 }}
-                              >
-                                {QUANTITY_UNITS.map(unit => (
-                                  <MenuItem key={unit} value={unit}>{unit}</MenuItem>
-                                ))}
-                              </TextField>
-                            </Box>
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              type="number"
-                              value={it.unit_price}
-                              onChange={e => {
-                                updateItem(idx, 'unit_price', e.target.value);
-                                setFieldErrors(errors => ({ ...errors, [`item_unit_price_${idx}`]: undefined }));
-                              }}
-                              onBlur={e => {
-                                // Format to 2 decimal places on blur
-                                const val = Number(e.target.value) || 0;
-                                const formatted = Math.round(val * 100) / 100;
-                                if (formatted !== val) {
-                                  updateItem(idx, 'unit_price', formatted);
-                                }
-                              }}
-                              error={!!fieldErrors[`item_unit_price_${idx}`]}
-                              helperText={fieldErrors[`item_unit_price_${idx}`]}
-                              size="small"
-                              fullWidth
-                              variant="outlined"
-                              placeholder="Unit Price"
-                              inputProps={{ step: '0.01', min: '0' }}
-                            />
-                          </TableCell>
-                          {gstType === 'CGST_SGST' ? (
-                            <>
-                              <TableCell>
-                                <TextField
-                                  select
-                                  value={it.cgst_rate || ''}
-                                  onChange={e => updateItem(idx, 'cgst_rate', e.target.value)}
-                                  size="small"
-                                  fullWidth
-                                  variant="outlined"
-                                  error={!!fieldErrors[`item_cgst_rate_${idx}`]}
-                                  helperText={fieldErrors[`item_cgst_rate_${idx}`] || ''}
-                                >
-                                  <MenuItem value="">Select</MenuItem>
-                                  {cgstSgstOptions.map(opt => (
-                                    <MenuItem key={opt} value={opt}>{opt}</MenuItem>
-                                  ))}
-                                </TextField>
-                              </TableCell>
-                              <TableCell>
-                                <TextField
-                                  select
-                                  value={it.sgst_rate || ''}
-                                  onChange={e => updateItem(idx, 'sgst_rate', e.target.value)}
-                                  size="small"
-                                  fullWidth
-                                  variant="outlined"
-                                  error={!!fieldErrors[`item_sgst_rate_${idx}`]}
-                                  helperText={fieldErrors[`item_sgst_rate_${idx}`] || ''}
-                                >
-                                  <MenuItem value="">Select</MenuItem>
-                                  {cgstSgstOptions.map(opt => (
-                                    <MenuItem key={opt} value={opt}>{opt}</MenuItem>
-                                  ))}
-                                </TextField>
-                              </TableCell>
-                            </>
-                          ) : (
-                            <TableCell>
-                              <TextField
-                                select
-                                value={it.igst_rate || ''}
-                                onChange={e => updateItem(idx, 'igst_rate', e.target.value)}
-                                size="small"
-                                fullWidth
-                                variant="outlined"
-                                error={!!fieldErrors[`item_igst_rate_${idx}`]}
-                                helperText={fieldErrors[`item_igst_rate_${idx}`] || ''}
-                              >
-                                <MenuItem value="">Select</MenuItem>
-                                {igstOptions.map(opt => (
-                                  <MenuItem key={opt} value={opt}>{opt}</MenuItem>
-                                ))}
-                              </TextField>
-                            </TableCell>
-                          )}
-                          <TableCell>
-                            {(() => {
-                              const line = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
-                              let gstRate = 0;
-                              if (gstType === 'CGST_SGST') {
-                                gstRate = (Number(it.cgst_rate) || 0) + (Number(it.sgst_rate) || 0);
-                              } else {
-                                gstRate = Number(it.igst_rate) || 0;
-                              }
-                              return (line * (1 + gstRate / 100)).toFixed(2);
-                            })()}
-                          </TableCell>
-                          <TableCell>
-                            <IconButton
-                              onClick={() => removeRow(idx)}
-                              disabled={items.length === 1}
-                              color="error"
+                              error={!!fieldErrors[`item_cgst_rate_${idx}`]}
+                              helperText={fieldErrors[`item_cgst_rate_${idx}`] || ''}
                             >
-                              <RemoveIcon />
-                            </IconButton>
-                            {idx === items.length - 1 && (
-                              <IconButton onClick={addRow} color="primary">
-                                <AddIcon />
-                              </IconButton>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </div>
-            </Box>
-            <Box mt={2} mb={2}>
-              <Typography>Subtotal: <CurrencyFormat value={showBackendTotals ? Number(invoice.subtotal) : t.subtotal} /></Typography>
-              <Typography>Total GST: <CurrencyFormat value={showBackendTotals ? Number(invoice.total_gst) : t.totalGst} /></Typography>
-              <Typography>
-                Round Off: {showBackendTotals
-                  ? (invoice.round_off >= 0 ? '+' : '') + Number(invoice.round_off).toFixed(2)
-                  : (t.roundOff >= 0 ? '+' : '') + t.roundOff.toFixed(2)}
-              </Typography>
-              <Typography fontWeight={700}>
-                Grand Total: <CurrencyFormat value={showBackendTotals ? Number(invoice.rounded_total) : t.roundedTotal} />
-              </Typography>
-            </Box>
-            <Stack direction="row" spacing={2}>
-              <Button type="submit" variant="contained" color="primary" disabled={loading}>
-                {loading ? (invoice ? 'Updating...' : 'Generating...') : (invoice ? 'Update Invoice' : 'Create & Generate PDF')}
+                              <MenuItem value="">Select</MenuItem>
+                              {cgstSgstOptions.map((opt) => (
+                                <MenuItem key={opt} value={opt}>{opt}</MenuItem>
+                              ))}
+                            </TextField>
+                          </Grid>
+                          <Grid size={{ xs: 6, md: 4 }}>
+                            <TextField
+                              select
+                              label="SGST %"
+                              value={it.sgst_rate || ''}
+                              onChange={(e) => {
+                                updateItem(idx, 'sgst_rate', e.target.value);
+                                clearError(`item_sgst_rate_${idx}`);
+                              }}
+                              size="small"
+                              fullWidth
+                              error={!!fieldErrors[`item_sgst_rate_${idx}`]}
+                              helperText={fieldErrors[`item_sgst_rate_${idx}`] || ''}
+                            >
+                              <MenuItem value="">Select</MenuItem>
+                              {cgstSgstOptions.map((opt) => (
+                                <MenuItem key={opt} value={opt}>{opt}</MenuItem>
+                              ))}
+                            </TextField>
+                          </Grid>
+                        </>
+                      ) : (
+                        <Grid size={{ xs: 6, md: 4 }}>
+                          <TextField
+                            select
+                            label="IGST %"
+                            value={it.igst_rate || ''}
+                            onChange={(e) => {
+                              updateItem(idx, 'igst_rate', e.target.value);
+                              clearError(`item_igst_rate_${idx}`);
+                            }}
+                            size="small"
+                            fullWidth
+                            error={!!fieldErrors[`item_igst_rate_${idx}`]}
+                            helperText={fieldErrors[`item_igst_rate_${idx}`] || ''}
+                          >
+                            <MenuItem value="">Select</MenuItem>
+                            {igstOptions.map((opt) => (
+                              <MenuItem key={opt} value={opt}>{opt}</MenuItem>
+                            ))}
+                          </TextField>
+                        </Grid>
+                      )}
+                    </Grid>
+                  </Paper>
+                );
+              })}
+
+              <Button
+                variant="outlined"
+                startIcon={<AddIcon />}
+                onClick={addRow}
+                sx={{ borderStyle: 'dashed', py: 1.2 }}
+              >
+                Add item
               </Button>
-              {onDone && (
-                <Button type="button" variant="outlined" onClick={onDone}>
-                  Cancel
-                </Button>
-              )}
             </Stack>
+          </Section>
+
+          {/* ---------- Totals ---------- */}
+          <Box sx={{ display: 'flex', justifyContent: { xs: 'stretch', sm: 'flex-end' } }}>
+            <Paper variant="outlined" sx={{ p: 2.5, width: { xs: '100%', sm: 340 } }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography color="text.secondary">Subtotal</Typography>
+                <CurrencyFormat value={showBackendTotals ? Number(invoice.subtotal) : t.subtotal} />
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography color="text.secondary">Total GST</Typography>
+                <CurrencyFormat value={showBackendTotals ? Number(invoice.total_gst) : t.totalGst} />
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography color="text.secondary">Round Off</Typography>
+                <span>{(roundOffValue >= 0 ? '+' : '') + roundOffValue.toFixed(2)}</span>
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
+                <Typography fontWeight={700}>Grand Total</Typography>
+                <Typography fontWeight={700} color="primary">
+                  <CurrencyFormat value={showBackendTotals ? Number(invoice.rounded_total) : t.roundedTotal} />
+                </Typography>
+              </Box>
+            </Paper>
+          </Box>
+
+          {/* ---------- Actions ---------- */}
+          <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={1.5} justifyContent="flex-end">
+            {onDone && (
+              <Button type="button" variant="outlined" color="inherit" size="large" onClick={onDone}>
+                Cancel
+              </Button>
+            )}
+            <Button type="submit" variant="contained" size="large" disabled={loading}>
+              {loading
+                ? invoice ? 'Updating...' : 'Generating...'
+                : invoice ? 'Update Invoice' : 'Create & Generate PDF'}
+            </Button>
           </Stack>
-        </Box>
-      </Paper>
+        </Stack>
+      </Box>
     </Box>
   );
 }
