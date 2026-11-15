@@ -4,8 +4,9 @@ node_modules/
 .env.*.local
 *.log
 dist/
-storage/invoices/
-billing.db
+.firebase/
+functions/node_modules/
+frontend/.env
 .DS_Store
 .vscode/
 .idea/

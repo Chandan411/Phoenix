@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { listInvoices, invoicePdfUrl } from '../api';
+import { toast } from 'react-toastify';
+import { listInvoices, openInvoicePdf } from '../api';
 import '../App.css';
 import CurrencyFormat from '../utils/CurrencyFormat.jsx';
 
@@ -11,9 +12,14 @@ export default function Dashboard({ refresh }) {
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
-      const data = await listInvoices({});
-      setInvoices(data);
-      setLoading(false);
+      try {
+        const data = await listInvoices({});
+        setInvoices(data);
+      } catch {
+        toast.error('Could not load invoices');
+      } finally {
+        setLoading(false);
+      }
     }
     fetchData();
   }, [refresh]);
@@ -46,41 +52,49 @@ export default function Dashboard({ refresh }) {
             <div className="skeleton" style={{ width: 200, height: 32, marginBottom: 16 }} />
             <div className="skeleton" style={{ width: '100%', height: 40, marginBottom: 8 }} />
           </>
+        ) : recentInvoices.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '32px 0', color: '#888', fontSize: '1.1rem' }}>
+            No invoices to display
+          </div>
         ) : (
-          recentInvoices.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '32px 0', color: '#888', fontSize: '1.1rem' }}>No invoices to display</div>
-          ) : (
-            <div className="vibrant-table-container" style={{ maxWidth: 700, margin: '0 auto' }}>
-              <table className="vibrant-table" style={{ fontSize: '0.98rem', width: '100%', textAlign: 'center' }}>
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: 'center', width: 40, background: '#4F8CFF', color: '#fff' }}>ID</th>
-                    <th style={{ textAlign: 'left', width: 120, background: '#4F8CFF', color: '#fff' }}>Invoice No</th>
-                    <th style={{ textAlign: 'center', width: 90, background: '#4F8CFF', color: '#fff' }}>Date</th>
-                    <th style={{ textAlign: 'left', width: 120, background: '#4F8CFF', color: '#fff' }}>Customer</th>
-                    <th style={{ textAlign: 'right', width: 90, background: '#4F8CFF', color: '#fff' }}>Total</th>
-                    <th style={{ textAlign: 'center', width: 60, background: '#4F8CFF', color: '#fff' }}>PDF</th>
+          <div className="vibrant-table-container" style={{ maxWidth: 700, margin: '0 auto' }}>
+            <table className="vibrant-table" style={{ fontSize: '0.98rem', width: '100%', textAlign: 'center' }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', width: 120, background: '#4F8CFF', color: '#fff' }}>Invoice No</th>
+                  <th style={{ textAlign: 'center', width: 90, background: '#4F8CFF', color: '#fff' }}>Date</th>
+                  <th style={{ textAlign: 'left', width: 120, background: '#4F8CFF', color: '#fff' }}>Customer</th>
+                  <th style={{ textAlign: 'right', width: 90, background: '#4F8CFF', color: '#fff' }}>Total</th>
+                  <th style={{ textAlign: 'center', width: 60, background: '#4F8CFF', color: '#fff' }}>PDF</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentInvoices.map((inv, idx) => (
+                  <tr key={inv.id} className={idx % 2 === 0 ? 'even-row' : 'odd-row'}>
+                    <td style={{ textAlign: 'left' }}>{inv.invoice_number}</td>
+                    <td style={{ textAlign: 'center' }}>{inv.invoice_date}</td>
+                    <td style={{ textAlign: 'left' }}>{inv.customer_name}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <CurrencyFormat value={inv.total} />
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <button
+                        onClick={() => openInvoicePdf(inv.id).catch(() => toast.error('Could not open PDF'))}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                        title="Open PDF"
+                      >
+                        <img
+                          src="https://upload.wikimedia.org/wikipedia/commons/8/87/PDF_file_icon.svg"
+                          alt="PDF"
+                          style={{ width: 20, height: 20, verticalAlign: 'middle' }}
+                        />
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {recentInvoices.map((inv, idx) => (
-                    <tr key={inv.id} className={idx % 2 === 0 ? 'even-row' : 'odd-row'}>
-                      <td style={{ textAlign: 'center' }}>{inv.id}</td>
-                      <td style={{ textAlign: 'left' }}>{inv.invoice_number}</td>
-                      <td style={{ textAlign: 'center' }}>{inv.invoice_date}</td>
-                      <td style={{ textAlign: 'left' }}>{inv.customer_name}</td>
-                      <td style={{ textAlign: 'right' }}><CurrencyFormat value={inv.total} /></td>
-                      <td style={{ textAlign: 'center' }}>
-                        <a href={invoicePdfUrl(inv.id)} target="_blank" rel="noopener noreferrer">
-                          <img src="https://upload.wikimedia.org/wikipedia/commons/8/87/PDF_file_icon.svg" alt="PDF" style={{ width: 20, height: 20, marginRight: 4, verticalAlign: 'middle' }} />
-                        </a>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
