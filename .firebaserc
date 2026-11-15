@@ -1,1 +1,5 @@
-{ "projects": { "default": "vistaar-invoice" } }
+{
+  "projects": {
+    "default": "vistaar-invoice"
+  }
+}
