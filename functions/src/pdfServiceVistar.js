@@ -84,7 +84,13 @@ function label(doc, x, y, width, title, content) { doc.font('Helvetica-Bold').fo
 function drawParty(doc, y, invoice) {
   const p = page(doc), gap = 8, left = Math.floor((p.width - gap) * .58), right = p.width - gap - left;
   const bill = [['Bill To', ''], ['Name:', text(invoice.customer_name || invoice.bill_to)], ['Address:', text(invoice.customer_address || invoice.bill_to_address)], ...(text(invoice.customer_gst) ? [['GSTIN:', text(invoice.customer_gst)]] : [])];
-  const details = [['Invoice Details', ''], ['Invoice No:', text(invoice.invoice_number)], ['Date:', text(invoice.invoice_date)], ...(text(invoice.challan_no) ? [['Challan No:', text(invoice.challan_no)]] : [])];
+  const details = [
+    ['Invoice Details', ''],
+    ['Invoice No:', text(invoice.invoice_number)],
+    ['Date:', text(invoice.invoice_date)],
+    ...(text(invoice.po_no) ? [['PO No:', text(invoice.po_no)]] : []),
+    ...(text(invoice.challan_no) ? [['Challan No:', text(invoice.challan_no)]] : []),
+  ];
   const panelHeight = (rows, width) => PAD * 2 + rows.reduce((sum, row, i) => sum + (i ? labelHeight(doc, row[0], row[1], width - PAD * 2) : h(doc, row[0], width - PAD * 2, STYLE.body + 1, 'Helvetica-Bold') + 3), 0);
   const height = Math.max(panelHeight(bill, left), panelHeight(details, right)); drawBox(doc, p.x, y, left, height); drawBox(doc, p.x + left + gap, y, right, height);
   

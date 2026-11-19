@@ -13,6 +13,8 @@ const cgstSgstOptions = [2.5, 9, 14];
 const igstOptions = [5, 18, 28];
 const QUANTITY_UNITS = ['Pieces', 'Packet', 'Kg'];
 const NUMERIC_FIELDS = ['cgst_rate', 'sgst_rate', 'igst_rate', 'quantity', 'unit_price'];
+const INVOICE_NUMBER_PATTERN = /^INV-\d{4}-(0[1-9]|1[0-2])-\d{4}$/;
+const INVOICE_NUMBER_ERROR = 'Invoice number must follow the format INV-YYYY-MM-XXXX';
 
 const emptyItem = () => ({
   product_name: '',
@@ -45,6 +47,7 @@ export default function InvoiceForm({ invoice, onDone }) {
   const [customerAddress, setCustomerAddress] = useState('');
   const [customerGst, setCustomerGst] = useState('');
   const [challanNo, setChallanNo] = useState('');
+  const [poNo, setPoNo] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(todayStr());
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [loading, setLoading] = useState(false);
@@ -78,6 +81,7 @@ export default function InvoiceForm({ invoice, onDone }) {
       setCustomerAddress(invoice.customer_address || '');
       setCustomerGst(invoice.customer_gst || '');
       setChallanNo(invoice.challan_no || '');
+      setPoNo(invoice.po_no || '');
       const isCgstSgst = (invoice.customer_gst || '').startsWith('27');
       setGstType(isCgstSgst ? 'CGST_SGST' : 'IGST');
       // Fetch HSN/SAC for each item if missing or empty
@@ -116,6 +120,7 @@ export default function InvoiceForm({ invoice, onDone }) {
       setItems([emptyItem()]);
       setGstType('IGST');
       setChallanNo('');
+      setPoNo('');
     }
   }, [invoice]);
 
@@ -174,6 +179,15 @@ export default function InvoiceForm({ invoice, onDone }) {
     const gstRegex = /^[A-Z0-9]{15}$/;
 
     if (!String(customerName || '').trim()) errors.customerName = 'Customer name is required';
+    const enteredInvoiceNumber = String(invoiceNumber || '').trim().toUpperCase();
+    const existingInvoiceNumber = String(invoice?.invoice_number || '').trim().toUpperCase();
+    if (
+      enteredInvoiceNumber &&
+      !INVOICE_NUMBER_PATTERN.test(enteredInvoiceNumber) &&
+      enteredInvoiceNumber !== existingInvoiceNumber
+    ) {
+      errors.invoiceNumber = INVOICE_NUMBER_ERROR;
+    }
     if (!customerGst) {
       errors.customerGst = 'Customer GST is required';
     } else if (!gstRegex.test(String(customerGst || '').trim())) {
@@ -234,6 +248,7 @@ export default function InvoiceForm({ invoice, onDone }) {
         customer_address: customerAddress,
         customer_gst: customerGst,
         challan_no: challanNo || undefined,
+        po_no: String(poNo || '').trim() || null,
         round_off: t.roundOff,
         subtotal: t.subtotal,
         total_gst: t.totalGst,
@@ -292,11 +307,32 @@ export default function InvoiceForm({ invoice, onDone }) {
                 <TextField
                   label="Invoice Number (Optional)"
                   value={invoiceNumber}
-                  onChange={(e) => setInvoiceNumber(e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    const value = e.target.value.toUpperCase();
+                    setInvoiceNumber(value);
+                    const unchangedLegacyNumber =
+                      value.trim() === String(invoice?.invoice_number || '').trim().toUpperCase();
+                    setFieldErrors((errors) => ({
+                      ...errors,
+                      invoiceNumber:
+                        value.trim() && !INVOICE_NUMBER_PATTERN.test(value.trim()) && !unchangedLegacyNumber
+                          ? INVOICE_NUMBER_ERROR
+                          : undefined,
+                    }));
+                  }}
+                  error={!!fieldErrors.invoiceNumber}
                   fullWidth
                   placeholder="Auto-generated if left empty"
                   slotProps={{ htmlInput: { maxLength: 30, style: { textTransform: 'uppercase' } } }}
-                  helperText="Leave empty for auto-generation (INV-YYYY-MM-XXXX)"
+                  helperText={fieldErrors.invoiceNumber || 'Leave empty for auto-generation (INV-YYYY-MM-XXXX)'}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="PO No. (Optional)"
+                  value={poNo}
+                  onChange={(e) => setPoNo(e.target.value)}
+                  fullWidth
                 />
               </Grid>
             </Grid>
