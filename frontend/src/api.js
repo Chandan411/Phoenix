@@ -14,6 +14,7 @@ api.interceptors.request.use(async (config) => {
 export const createInvoice = (payload) => api.post('/invoices', payload).then((r) => r.data);
 export const updateInvoice = (id, payload) => api.put(`/invoices/${id}`, payload).then((r) => r.data);
 export const listInvoices = (params) => api.get('/invoices', { params }).then((r) => r.data);
+export const listProducts = () => api.get('/invoices/products').then((r) => r.data);
 export const getInvoice = (id) => api.get(`/invoices/${id}`).then((r) => r.data);
 export const getPartyByGst = (gst) => api.get(`/invoices/party/${gst}`).then((r) => r.data);
 export const getProductByName = (name) =>

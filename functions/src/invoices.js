@@ -225,6 +225,15 @@ router.get('/', async (req, res) => {
 });
 
 // ---------- Lookups (must be declared before /:id) ----------
+router.get('/products', async (req, res) => {
+  try {
+    const snap = await products.get();
+    return res.json(snap.docs.map((d) => d.data()));
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/party/:gst', async (req, res) => {
   try {
     const doc = await parties.doc(req.params.gst).get();

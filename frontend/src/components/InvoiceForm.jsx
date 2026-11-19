@@ -4,7 +4,7 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import { createInvoice, updateInvoice, listInvoices, getPartyByGst, getProductByName } from '../api';
+import { createInvoice, updateInvoice, listInvoices, listProducts, getPartyByGst, getProductByName } from '../api';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import CurrencyFormat from '../utils/CurrencyFormat.jsx';
@@ -53,6 +53,8 @@ export default function InvoiceForm({ invoice, onDone }) {
   const [loading, setLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
   const [gstOptions, setGstOptions] = useState([]);
+  const [customerOptions, setCustomerOptions] = useState([]);
+  const [products, setProducts] = useState({});
   const [gstType, setGstType] = useState('IGST');
   const navigate = useNavigate();
 
@@ -66,11 +68,39 @@ export default function InvoiceForm({ invoice, onDone }) {
           new Set(allInvoices.map((inv) => (inv.customer_gst || '').trim()).filter(Boolean))
         );
         setGstOptions(uniqueGsts);
+        setCustomerOptions(
+          Array.from(
+            new Set(
+              allInvoices
+                .map((inv) => (inv.customer_name || '').trim().toUpperCase())
+                .filter(Boolean)
+            )
+          )
+        );
       } catch {
         // suggestions are optional
       }
     }
     fetchGsts();
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    listProducts()
+      .then((productList) => {
+        if (!active) return;
+        setProducts(
+          Object.fromEntries(
+            productList
+              .filter((product) => product.product_name)
+              .map((product) => [product.product_name.trim().toUpperCase(), product.hsn_sac])
+          )
+        );
+      })
+      .catch(() => {
+        // Product suggestions are optional.
+      });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -141,16 +171,12 @@ export default function InvoiceForm({ invoice, onDone }) {
     if (gstType === 'CGST_SGST' && field === 'cgst_rate') {
       patch.sgst_rate = Number(value) || 0;
     }
-    patchItem(i, patch);
 
-    // If product name changes, look up its HSN/SAC
-    if (field === 'product_name' && String(value).trim()) {
-      getProductByName(value)
-        .then((product) => {
-          if (product && product.hsn_sac) patchItem(i, { hsn_sac: product.hsn_sac });
-        })
-        .catch(() => patchItem(i, { hsn_sac: '' }));
+    if (field === 'product_name') {
+      const hsn = products[String(value).trim().toUpperCase()];
+      if (hsn) patch.hsn_sac = hsn;
     }
+    patchItem(i, patch);
   }
 
   function addRow() { setItems((prev) => [...prev, emptyItem()]); }
@@ -366,16 +392,27 @@ export default function InvoiceForm({ invoice, onDone }) {
                 />
               </Grid>
               <Grid size={{ xs: 12, md: 8 }}>
-                <TextField
-                  label="Customer Name"
-                  value={customerName}
-                  onChange={(e) => {
-                    setCustomerName(e.target.value.toUpperCase());
+                <Autocomplete
+                  freeSolo
+                  options={customerOptions}
+                  value={customerName || ''}
+                  onChange={(_, value) => {
+                    setCustomerName((value || '').toUpperCase());
                     clearError('customerName');
                   }}
-                  error={!!fieldErrors.customerName}
-                  helperText={fieldErrors.customerName}
-                  fullWidth
+                  onInputChange={(_, value) => {
+                    setCustomerName((value || '').toUpperCase());
+                    clearError('customerName');
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Customer Name"
+                      error={!!fieldErrors.customerName}
+                      helperText={fieldErrors.customerName}
+                      fullWidth
+                    />
+                  )}
                 />
               </Grid>
               <Grid size={12}>
@@ -432,18 +469,28 @@ export default function InvoiceForm({ invoice, onDone }) {
 
                     <Grid container spacing={1.5}>
                       <Grid size={{ xs: 12, md: 5 }}>
-                        <TextField
-                          label="Product"
-                          value={it.product_name}
-                          onChange={(e) => {
-                            updateItem(idx, 'product_name', e.target.value.toUpperCase());
+                        <Autocomplete
+                          freeSolo
+                          options={Object.keys(products)}
+                          value={it.product_name || ''}
+                          onChange={(_, value) => {
+                            updateItem(idx, 'product_name', (value || '').toUpperCase());
                             clearError(`item_product_name_${idx}`);
                           }}
-                          error={!!fieldErrors[`item_product_name_${idx}`]}
-                          helperText={fieldErrors[`item_product_name_${idx}`]}
-                          size="small"
-                          fullWidth
-                          placeholder="Product Name"
+                          onInputChange={(_, value) => {
+                            updateItem(idx, 'product_name', (value || '').toUpperCase());
+                            clearError(`item_product_name_${idx}`);
+                          }}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              label="Product"
+                              size="small"
+                              placeholder="Product Name"
+                              error={!!fieldErrors[`item_product_name_${idx}`]}
+                              helperText={fieldErrors[`item_product_name_${idx}`]}
+                            />
+                          )}
                         />
                       </Grid>
                       <Grid size={{ xs: 6, md: 3 }}>
