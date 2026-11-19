@@ -138,6 +138,7 @@ function buildRecord(body, invoiceNumber, invoiceDate) {
     customer_name: body.customer_name,
     customer_address: body.customer_address || '',
     customer_gst: body.customer_gst || '',
+    po_no: typeof body.po_no === 'string' ? body.po_no.trim() || null : null,
     challan_no: body.challan_no || null,
     subtotal,
     total_gst: totalGst,
@@ -303,6 +304,10 @@ router.put('/:id', async (req, res) => {
     const invoiceDate = body.invoice_date || old.invoice_date;
     const { record, calc } = buildRecord(body, invoiceNumber, invoiceDate);
     record.challan_no = body.challan_no || old.challan_no || null;
+    if (body.po_no === undefined) {
+      if (old.po_no !== undefined) record.po_no = old.po_no;
+      else delete record.po_no;
+    }
     record.pdf_path = await buildAndUploadPdf(pdfPayload(record, calc));
     record.updated_at = dayjs().toISOString();
 
