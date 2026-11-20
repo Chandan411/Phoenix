@@ -42,7 +42,11 @@ function normaliseItem(item = {}, gstType) {
   let cgstRate = number(item.cgst_rate), sgstRate = number(item.sgst_rate), igstRate = number(item.igst_rate);
   if (gstType === 'CGST_SGST') { if (!cgstRate && !sgstRate && igstRate) cgstRate = sgstRate = igstRate / 2; igstRate = 0; }
   else { if (!igstRate) igstRate = cgstRate + sgstRate; cgstRate = sgstRate = 0; }
-  const cgstAmount = money(taxableAmount * cgstRate / 100), sgstAmount = money(taxableAmount * sgstRate / 100), igstAmount = money(taxableAmount * igstRate / 100);
+  const unitGstAmount = money(unitPrice * (cgstRate + sgstRate + igstRate) / 100);
+  const unitCgstAmount = money(unitPrice * cgstRate / 100);
+  const unitSgstAmount = gstType === 'CGST_SGST' ? money(unitGstAmount - unitCgstAmount) : 0;
+  const unitIgstAmount = gstType === 'IGST' ? unitGstAmount : 0;
+  const cgstAmount = money(quantity * unitCgstAmount), sgstAmount = money(quantity * unitSgstAmount), igstAmount = money(quantity * unitIgstAmount);
   const gstAmount = money(cgstAmount + sgstAmount + igstAmount);
   return { ...item, product_name: text(item.product_name || item.name), description: text(item.description), hsn_sac: text(item.hsn_sac || item.hsn), quantity, unit_price: unitPrice, cgst_rate: cgstRate, sgst_rate: sgstRate, igst_rate: igstRate, taxableAmount, cgstAmount, sgstAmount, igstAmount, gstAmount, lineAmount: money(taxableAmount + gstAmount) };
 }

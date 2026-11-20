@@ -15,6 +15,7 @@ const QUANTITY_UNITS = ['Pieces', 'Packet', 'Kg'];
 const NUMERIC_FIELDS = ['cgst_rate', 'sgst_rate', 'igst_rate', 'quantity', 'unit_price'];
 const INVOICE_NUMBER_PATTERN = /^INV-\d{4}-(0[1-9]|1[0-2])-\d{4}$/;
 const INVOICE_NUMBER_ERROR = 'Invoice number must follow the format INV-YYYY-MM-XXXX';
+const roundMoney = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 const emptyItem = () => ({
   product_name: '',
@@ -187,14 +188,25 @@ export default function InvoiceForm({ invoice, onDone }) {
       ? (Number(it.cgst_rate) || 0) + (Number(it.sgst_rate) || 0)
       : Number(it.igst_rate) || 0;
 
+  const amountsForItem = (it) => {
+    const quantity = Number(it.quantity) || 0;
+    const unitPrice = Number(it.unit_price) || 0;
+    const unitGst = roundMoney(unitPrice * gstRateOf(it) / 100);
+    const subtotal = roundMoney(quantity * unitPrice);
+    const totalGst = roundMoney(quantity * unitGst);
+    return { subtotal, totalGst, lineTotal: roundMoney(subtotal + totalGst) };
+  };
+
   function totals() {
     let subtotal = 0, totalGst = 0;
     items.forEach((it) => {
-      const line = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
-      subtotal += line;
-      totalGst += line * (gstRateOf(it) / 100);
+      const amounts = amountsForItem(it);
+      subtotal += amounts.subtotal;
+      totalGst += amounts.totalGst;
     });
-    const total = subtotal + totalGst;
+    subtotal = roundMoney(subtotal);
+    totalGst = roundMoney(totalGst);
+    const total = roundMoney(subtotal + totalGst);
     const roundedTotal = Math.round(total);
     const roundOff = +(roundedTotal - total).toFixed(2);
     return { subtotal, totalGst, total, roundedTotal, roundOff };
@@ -442,8 +454,7 @@ export default function InvoiceForm({ invoice, onDone }) {
           <Section title="Items">
             <Stack spacing={2}>
               {items.map((it, idx) => {
-                const line = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
-                const lineTotal = line * (1 + gstRateOf(it) / 100);
+                const { lineTotal } = amountsForItem(it);
                 return (
                   <Paper key={idx} variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, bgcolor: 'background.default' }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
