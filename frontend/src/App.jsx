@@ -54,6 +54,19 @@ function Brand({ compact }) {
   );
 }
 
+function AppFooter() {
+  return (
+    <Box
+      component="footer"
+      sx={{ py: 1.5, px: 2, borderTop: 1, borderColor: 'divider', textAlign: 'center' }}
+    >
+      <Typography variant="caption" color="text.secondary">
+        ⭐ Made with ❤️ by Chandan ⭐
+      </Typography>
+    </Box>
+  );
+}
+
 function Shell({ children }) {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
@@ -69,7 +82,7 @@ function Shell({ children }) {
   // ---------- Desktop / large tablet: sidebar ----------
   if (isDesktop) {
     return (
-      <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      <Box sx={{ display: 'flex', flexGrow: 1 }}>
         <Drawer
           variant="permanent"
           sx={{
@@ -126,7 +139,7 @@ function Shell({ children }) {
   const activeIndex = NAV.findIndex((n) => n.match(location.pathname));
 
   return (
-    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
       <AppBar
         position="sticky" color="inherit" elevation={0}
         sx={{ borderBottom: 1, borderColor: 'divider', pt: 'env(safe-area-inset-top)' }}
@@ -203,27 +216,30 @@ export default function App() {
   );
 
   return (
-    <>
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <ToastContainer position="top-center" autoClose={3000} />
-      <Routes>
-        <Route path="/" element={user ? <Navigate to="/dashboard" replace /> : <Login />} />
-        <Route path="/dashboard" element={page(<Dashboard refresh={refreshList} />)} />
-        <Route path="/invoices" element={page(<InvoiceList onEdit={setEditingInvoice} refresh={refreshList} />)} />
-        <Route path="/invoices/new" element={page(<InvoiceForm invoice={null} onDone={refreshAndGoToDashboard} />)} />
-        <Route
-          path="/invoices/:id/edit"
-          element={page(
-            <EditInvoiceRoute
-              invoice={editingInvoice}
-              onDone={() => {
-                setEditingInvoice(null);
-                refreshAndGoToDashboard();
-              }}
-            />
-          )}
-        />
-        <Route path="*" element={<Navigate to={user ? '/dashboard' : '/'} replace />} />
-      </Routes>
-    </>
+      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+        <Routes>
+          <Route path="/" element={user ? <Navigate to="/dashboard" replace /> : <Login />} />
+          <Route path="/dashboard" element={page(<Dashboard refresh={refreshList} />)} />
+          <Route path="/invoices" element={page(<InvoiceList onEdit={setEditingInvoice} refresh={refreshList} />)} />
+          <Route path="/invoices/new" element={page(<InvoiceForm invoice={null} onDone={refreshAndGoToDashboard} />)} />
+          <Route
+            path="/invoices/:id/edit"
+            element={page(
+              <EditInvoiceRoute
+                invoice={editingInvoice}
+                onDone={() => {
+                  setEditingInvoice(null);
+                  refreshAndGoToDashboard();
+                }}
+              />
+            )}
+          />
+          <Route path="*" element={<Navigate to={user ? '/dashboard' : '/'} replace />} />
+        </Routes>
+      </Box>
+      <AppFooter />
+    </Box>
   );
 }
