@@ -171,8 +171,7 @@ function amountWords(total) {
   return parts.join(' ') + ' RUPEES ONLY';
 }
 function totalRows(totals) { 
-  const igstAmount = money(totals.grandTotal - totals.subtotal - (Number(totals.roundOff) || 0));
-  const rows = [['Subtotal', inr(totals.subtotal)], ...(totals.gstType === 'IGST' ? [['IGST', inr(igstAmount)]] : []), ...(totals.gstType === 'CGST_SGST' && totals.cgstAmount ? [['CGST', inr(totals.cgstAmount)], ['SGST', inr(totals.sgstAmount)]] : [])];
+  const rows = [['Subtotal', inr(totals.subtotal)], ...(totals.gstType === 'IGST' && totals.igstAmount ? [['IGST', inr(totals.igstAmount)]] : []), ...(totals.gstType === 'CGST_SGST' && totals.cgstAmount ? [['CGST', inr(totals.cgstAmount)], ['SGST', inr(totals.sgstAmount)]] : [])];
   if (totals.roundOff !== undefined && totals.roundOff !== null && totals.roundOff !== 0) {
     rows.push(['Round Off', inrSigned(totals.roundOff)]);
   }
@@ -225,9 +224,9 @@ async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
           return { ...item, product_name: text(item.product_name || item.name), description: text(item.description), hsn_sac: text(item.hsn_sac || item.hsn), quantity, unit_price: unitPrice, cgst_rate: cgstRate, sgst_rate: sgstRate, igst_rate: igstRate, taxableAmount, cgstAmount, sgstAmount, igstAmount, gstAmount, lineAmount: money(taxableAmount + gstAmount) };
         }),
         subtotal: invoice.subtotal,
-        cgstAmount: gstType === 'IGST' ? 0 : invoice.total_gst / 2,
-        sgstAmount: gstType === 'IGST' ? 0 : invoice.total_gst / 2,
-        igstAmount: gstType === 'IGST' ? invoice.total_gst : 0,
+        cgstAmount: invoice.gstType === 'IGST' ? 0 : invoice.total_gst / 2,
+        sgstAmount: invoice.gstType === 'IGST' ? 0 : invoice.total_gst / 2,
+        igstAmount: invoice.gstType === 'IGST' ? invoice.total_gst : 0,
         totalGst: invoice.total_gst,
         roundOff: invoice.round_off || 0,
         grandTotal: invoice.total,
