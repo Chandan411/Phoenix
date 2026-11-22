@@ -171,7 +171,8 @@ function amountWords(total) {
   return parts.join(' ') + ' RUPEES ONLY';
 }
 function totalRows(totals) { 
-  const rows = [['Subtotal', inr(totals.subtotal)], ...(totals.gstType === 'IGST' && totals.igstAmount ? [['IGST', inr(totals.igstAmount)]] : []), ...(totals.gstType === 'CGST_SGST' && totals.cgstAmount ? [['CGST', inr(totals.cgstAmount)], ['SGST', inr(totals.sgstAmount)]] : [])];
+  const igstAmount = money(totals.grandTotal - totals.subtotal - (Number(totals.roundOff) || 0));
+  const rows = [['Subtotal', inr(totals.subtotal)], ...(totals.gstType === 'IGST' ? [['IGST', inr(igstAmount)]] : []), ...(totals.gstType === 'CGST_SGST' && totals.cgstAmount ? [['CGST', inr(totals.cgstAmount)], ['SGST', inr(totals.sgstAmount)]] : [])];
   if (totals.roundOff !== undefined && totals.roundOff !== null && totals.roundOff !== 0) {
     rows.push(['Round Off', inrSigned(totals.roundOff)]);
   }
