@@ -204,41 +204,22 @@ async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
   const gstType = determineGstType(invoice, companyConfig);
   
   // Use passed totals if provided (for precision matching frontend), else calculate
-  const hasPassedTotals = invoice.subtotal !== undefined && invoice.total_gst !== undefined && invoice.total !== undefined;
+ // The tax split always comes from the items, so IGST / CGST / SGST amounts are never lost
+  const calc = calculateTotals(invoice.items, gstType, invoice.round_off);
+
+  // If the caller already calculated the headline figures, keep them so the PDF matches the form
+  const hasPassedTotals =
+    invoice.subtotal !== undefined && invoice.total_gst !== undefined && invoice.total !== undefined;
   const totals = hasPassedTotals
     ? {
-        gstType,
-        items: invoice.items.map((item, idx) => {
-          // Normalize items for PDF rendering
-          const quantity = number(item.quantity);
-          const unitPrice = number(item.unit_price ?? item.rate);
-          const taxableAmount = money(quantity * unitPrice);
-          let cgstRate = number(item.cgst_rate);
-          let sgstRate = number(item.sgst_rate);
-          let igstRate = number(item.igst_rate);
-          if (gstType === 'CGST_SGST') {
-            if (!cgstRate && !sgstRate && igstRate) cgstRate = sgstRate = igstRate / 2;
-            igstRate = 0;
-          } else {
-            if (!igstRate) igstRate = cgstRate + sgstRate;
-            cgstRate = sgstRate = 0;
-          }
-          const cgstAmount = money(taxableAmount * cgstRate / 100);
-          const sgstAmount = money(taxableAmount * sgstRate / 100);
-          const igstAmount = money(taxableAmount * igstRate / 100);
-          const gstAmount = money(cgstAmount + sgstAmount + igstAmount);
-          return { ...item, product_name: text(item.product_name || item.name), description: text(item.description), hsn_sac: text(item.hsn_sac || item.hsn), quantity, unit_price: unitPrice, cgst_rate: cgstRate, sgst_rate: sgstRate, igst_rate: igstRate, taxableAmount, cgstAmount, sgstAmount, igstAmount, gstAmount, lineAmount: money(taxableAmount + gstAmount) };
-        }),
+        ...calc,
         subtotal: invoice.subtotal,
-        cgstAmount: invoice.gstType === 'IGST' ? 0 : invoice.total_gst / 2,
-        sgstAmount: invoice.gstType === 'IGST' ? 0 : invoice.total_gst / 2,
-        igstAmount: invoice.gstType === 'IGST' ? invoice.total_gst : 0,
         totalGst: invoice.total_gst,
         roundOff: invoice.round_off || 0,
         grandTotal: invoice.total,
         total: invoice.total,
       }
-    : calculateTotals(invoice.items, gstType, invoice.round_off);
+    : calc;
   
   const columns = getColumns(gstType);
   const date = text(invoice.invoice_date).slice(0, 10) || new Date().toISOString().slice(0, 10), directory = path.join(process.cwd(), 'storage', 'invoices', date, safeName(invoice.customer_name || invoice.customer));
