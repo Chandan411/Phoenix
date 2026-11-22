@@ -10,11 +10,13 @@ import { useTheme } from '@mui/material/styles';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import TuneIcon from '@mui/icons-material/Tune';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'; // NEW
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import { listInvoices, openInvoicePdf, getInvoice } from '../api';
 import CurrencyFormat from '../utils/CurrencyFormat.jsx';
 import InvoiceCard from './InvoiceCard.jsx';
+import DeleteInvoiceDialog from './DeleteInvoiceDialog.jsx'; // NEW
 
 export default function InvoiceList({ onEdit, refresh }) {
   const theme = useTheme();
@@ -26,6 +28,7 @@ export default function InvoiceList({ onEdit, refresh }) {
   const [dateTo, setDateTo] = useState('');
   const [customerFilter, setCustomerFilter] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null); // NEW
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -71,6 +74,12 @@ export default function InvoiceList({ onEdit, refresh }) {
       toast.error('Could not load invoice');
     }
   }
+
+  // NEW: remove the deleted invoice from the list and close the dialog
+  const handleDeleted = (inv) => {
+    setInvoices((prev) => prev.filter((i) => i.id !== inv.id));
+    setDeleteTarget(null);
+  };
 
   return (
     <Box>
@@ -168,7 +177,7 @@ export default function InvoiceList({ onEdit, refresh }) {
       ) : isPhone ? (
         <Stack spacing={1.5}>
           {filteredInvoices.map((inv) => (
-            <InvoiceCard key={inv.id} inv={inv} onPdf={openPdf} onEdit={handleEdit} />
+            <InvoiceCard key={inv.id} inv={inv} onPdf={openPdf} onEdit={handleEdit} onDelete={setDeleteTarget} />
           ))}
           <Typography variant="body2" color="text.secondary" align="center" sx={{ pt: 1 }}>
             Showing {filteredInvoices.length} of {invoices.length} invoices
@@ -186,6 +195,7 @@ export default function InvoiceList({ onEdit, refresh }) {
                   <TableCell align="right">Total</TableCell>
                   <TableCell align="center">PDF</TableCell>
                   <TableCell align="center">Edit</TableCell>
+                  <TableCell align="center">Delete</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -209,6 +219,13 @@ export default function InvoiceList({ onEdit, refresh }) {
                         </IconButton>
                       </Tooltip>
                     </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Delete">
+                        <IconButton color="error" onClick={() => setDeleteTarget(inv)}>
+                          <DeleteOutlineIcon />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -221,6 +238,9 @@ export default function InvoiceList({ onEdit, refresh }) {
           </Box>
         </Paper>
       )}
+
+      {/* NEW: password-confirmation dialog */}
+      <DeleteInvoiceDialog invoice={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={handleDeleted} />
     </Box>
   );
 }

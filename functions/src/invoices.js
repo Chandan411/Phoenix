@@ -332,4 +332,38 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// ---------- Delete ----------
+const RECENT_LOGIN_SECONDS = 120;
+
+router.delete('/:id', async (req, res) => {
+  try {
+    // Require a fresh sign-in (the password prompt re-authenticates on the frontend)
+    const authAge = Math.floor(Date.now() / 1000) - (req.user.auth_time || 0);
+    if (authAge > RECENT_LOGIN_SECONDS) {
+      return res.status(403).json({ error: 'Please confirm your password again', code: 'reauth-required' });
+    }
+
+    const ref = invoices.doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Invoice not found' });
+    const data = doc.data();
+
+    // Keep an audit copy first. If this fails, nothing is deleted.
+    await db.collection('deleted_invoices').doc(doc.id).set({
+      ...data,
+      deleted_at: dayjs().toISOString(),
+      deleted_by: req.user.uid,
+      deleted_by_email: req.user.email || null,
+    });
+
+    await ref.delete();
+    if (data.pdf_path) bucket.file(data.pdf_path).delete().catch(() => {});
+
+    return res.json({ id: doc.id, deleted: true });
+  } catch (err) {
+    console.error('DELETE /:id', err);
+    return res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
+
 module.exports = router;

@@ -2,9 +2,10 @@ import React from 'react';
 import { Box, IconButton, Paper, Typography } from '@mui/material';
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import CurrencyFormat from '../utils/CurrencyFormat.jsx';
 
-export default function InvoiceCard({ inv, onPdf, onEdit }) {
+export default function InvoiceCard({ inv, onPdf, onEdit, onDelete }) {
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 1 }}>
@@ -23,6 +24,11 @@ export default function InvoiceCard({ inv, onPdf, onEdit }) {
           {onEdit && (
             <IconButton color="primary" aria-label="Edit invoice" onClick={() => onEdit(inv)}>
               <EditOutlinedIcon fontSize="small" />
+            </IconButton>
+          )}
+          {onDelete && (
+            <IconButton color="error" aria-label="Delete invoice" onClick={() => onDelete(inv)}>
+              <DeleteOutlineIcon fontSize="small" />
             </IconButton>
           )}
         </Box>
