@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import {
   onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail,
+  EmailAuthProvider, reauthenticateWithCredential,
 } from 'firebase/auth';
 import { auth } from '../firebase';
 
@@ -19,6 +20,13 @@ export function AuthProvider({ children }) {
     login: (email, password) => signInWithEmailAndPassword(auth, email, password),
     logout: () => signOut(auth),
     resetPassword: (email) => sendPasswordResetEmail(auth, email),
+    // Re-checks the current user's password; throws if it's wrong
+    verifyPassword: async (password) => {
+      const current = auth.currentUser;
+      if (!current?.email) throw new Error('Not signed in');
+      await reauthenticateWithCredential(current, EmailAuthProvider.credential(current.email, password));
+      await current.getIdToken(true); // fresh token carries the new sign-in time
+    },
   };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

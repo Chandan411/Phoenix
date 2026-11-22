@@ -8,7 +8,6 @@ import {
   Toolbar, Typography, useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
@@ -20,7 +19,7 @@ import { useAuth } from './auth/AuthContext';
 import ProtectedRoute from './auth/ProtectedRoute';
 import { getInvoice } from './api';
 
-const DRAWER_W = 250;
+const DRAWER_W = 290;
 
 const NAV = [
   { label: 'Dashboard', short: 'Home', to: '/dashboard', icon: <DashboardOutlinedIcon />, match: (p) => p === '/dashboard' },
@@ -28,7 +27,7 @@ const NAV = [
     label: 'Invoices',
     short: 'Invoices',
     to: '/invoices',
-    icon: <ReceiptLongOutlinedIcon />,
+    // icon: <ReceiptLongOutlinedIcon />,
     match: (p) => p === '/invoices' || /^\/invoices\/[^/]+\/edit$/.test(p),
   },
   { label: 'Create Invoice', short: 'New', to: '/invoices/new', icon: <AddCircleOutlineIcon />, match: (p) => p === '/invoices/new' },
@@ -38,31 +37,15 @@ function Brand({ compact }) {
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
       <Box
-        sx={{
-          width: compact ? 34 : 40, height: compact ? 34 : 40, borderRadius: 2, display: 'grid',
-          placeItems: 'center', flexShrink: 0,
-          background: 'linear-gradient(135deg, #2563eb 0%, #0d9488 100%)',
-        }}
-      >
-        <ReceiptLongOutlinedIcon sx={{ color: '#fff', fontSize: compact ? 20 : 24 }} />
-      </Box>
+        component="img"
+        src="/vistar.svg"
+        alt="Vistar"
+        sx={{ width: compact ? 34 : 40, height: compact ? 34 : 40, flexShrink: 0, objectFit: 'contain' }}
+      />
       <Box sx={{ minWidth: 0 }}>
         <Typography fontWeight={800} lineHeight={1.2} noWrap>VISTAR ENTERPRISE</Typography>
-        {!compact && <Typography variant="caption" color="text.secondary">Smart Billing</Typography>}
+        <Typography variant="caption" color="text.secondary">Made with ❤️ by Chandan</Typography>
       </Box>
-    </Box>
-  );
-}
-
-function AppFooter() {
-  return (
-    <Box
-      component="footer"
-      sx={{ py: 1.5, px: 2, borderTop: 1, borderColor: 'divider', textAlign: 'center' }}
-    >
-      <Typography variant="caption" color="text.secondary">
-        ⭐ Made with ❤️ by Chandan ⭐
-      </Typography>
     </Box>
   );
 }
@@ -239,7 +222,6 @@ export default function App() {
           <Route path="*" element={<Navigate to={user ? '/dashboard' : '/'} replace />} />
         </Routes>
       </Box>
-      <AppFooter />
     </Box>
   );
 }
