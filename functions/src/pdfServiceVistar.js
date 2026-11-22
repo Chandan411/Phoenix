@@ -230,9 +230,9 @@ async function generateAndSavePDF(invoiceObj = {}, companyConfig = {}) {
           return { ...item, product_name: text(item.product_name || item.name), description: text(item.description), hsn_sac: text(item.hsn_sac || item.hsn), quantity, unit_price: unitPrice, cgst_rate: cgstRate, sgst_rate: sgstRate, igst_rate: igstRate, taxableAmount, cgstAmount, sgstAmount, igstAmount, gstAmount, lineAmount: money(taxableAmount + gstAmount) };
         }),
         subtotal: invoice.subtotal,
-        cgstAmount: invoice.gstType === 'IGST' ? 0 : invoice.total_gst / 2,
-        sgstAmount: invoice.gstType === 'IGST' ? 0 : invoice.total_gst / 2,
-        igstAmount: invoice.gstType === 'IGST' ? invoice.total_gst : 0,
+        cgstAmount: gstType === 'IGST' ? 0 : invoice.total_gst / 2,
+        sgstAmount: gstType === 'IGST' ? 0 : invoice.total_gst / 2,
+        igstAmount: gstType === 'IGST' ? invoice.total_gst : 0,
         totalGst: invoice.total_gst,
         roundOff: invoice.round_off || 0,
         grandTotal: invoice.total,
